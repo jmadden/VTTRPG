@@ -27,14 +27,19 @@ roadmap, not an as-built spec: for how shipped features actually work, see docs
 | Map library: GM browses saved maps and displays one to the table | Proposed | GM-side list/gallery UI + a "set active map" broadcast to all players. Needs a map thumbnail and `game_maps` browse endpoint. |
 | Map image upload + render real `asset_path` | Proposed | Currently the map layer is a placeholder grid; `game_maps.asset_path` is unused by the renderer. Prereq for a useful map library. |
 | Show active map to **all** players | Proposed | Straightforward once "set active map" exists; this is the default. |
-| Show a map to **only select** players (private/breakout view) | Needs vetting | **Conflicts with a locked decision:** fog is map-level and the only audience split is GM vs players (docs/04). Per-player or per-group map views means per-audience state and a bigger visibility model. Decide scope before scheduling: is this per-player maps, or breakout "sub-tables"? |
+| Per-audience fog of war (solo peek, party split) | Proposed | **Direction settled, see docs/08.** Shared base layer + per-user overlays; effective view = base union overlay. Server-side change (per-socket emission); client barely changes. Phase 1. |
+| Breakout maps: different active map per sub-party | Proposed | House-vs-dungeon case. Per-user active map on top of per-audience fog; `map_visibility` is already keyed per (map, user). Depends on the row above. Phase 2, see docs/08. |
+| Audience presets (saved "parties" for reveal targeting) | Candidate | Named player sets so the GM targets a recurring group in one click. UI convenience over multi-select; storage TBD. See docs/08. |
+| GM: view as player (preview a player's fog) | Candidate | GM previews a specific player's effective view to confirm who sees what during a split. See docs/08. |
 | Build maps on the fly and save to the library | Proposed | In-app map editor: place/paint terrain, then persist to `game_maps`. Depends on the shape library below. |
 | Prebuilt shape library (boulders, rooms, doors, corridors, etc.) | Proposed | Reusable stamps/assets the GM drops onto a map while building. Needs an asset catalog + a place/transform tool in the editor. |
 
 **Open questions for this section**
 - Map library: does "display to the table" replace the current map for everyone,
   or can multiple maps be open at once (tabs)?
-- Select-players view: resolve the fog-model conflict above before design.
+- Per-audience fog: design settled in docs/08 (shared base + per-user overlays,
+  manual regroup, breakout maps phased). Open sub-questions (parties storage,
+  conceal precedence) are tracked there.
 - Shape library: bundled art vs user-importable assets? Grid-aligned stamps vs
   free placement?
 
