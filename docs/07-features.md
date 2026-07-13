@@ -103,5 +103,5 @@ Deliberately deferred. Logged so we do not lose them.
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Voice & video inside the platform | Future | Currently external (Discord, etc.). Revisit only if external tooling becomes a real friction point. |
-| Move off a single local host to better infrastructure | Future | Would change the "local host" model and the LAN/ngrok connection assumptions. Large architectural shift. |
+| Move off a single local host to better infrastructure | Future | **Assessed for Render, see docs/brainstorming-render-hosting.md: difficulty is low.** Render can be an added deploy target (one same-origin web service + Postgres) without dropping local play; gated on the docs/09 login. Cost options from $0 (all free, monthly DB expiry) to ~$13-14/mo always-on. |
 | 3D graphics | Future | The renderer is PixiJS 2D by design. A 3D mode is a separate rendering path, not an increment. |
