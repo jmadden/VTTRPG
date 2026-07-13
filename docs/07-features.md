@@ -27,7 +27,7 @@ roadmap, not an as-built spec: for how shipped features actually work, see docs
 | Map library: GM browses saved maps and displays one to the table | Proposed | GM-side list/gallery UI + a "set active map" broadcast to all players. Needs a map thumbnail and `game_maps` browse endpoint. |
 | Map image upload + render real `asset_path` | Proposed | Currently the map layer is a placeholder grid; `game_maps.asset_path` is unused by the renderer. Prereq for a useful map library. |
 | Show active map to **all** players | Proposed | Straightforward once "set active map" exists; this is the default. |
-| Show a map to **only select** players (private/breakout view) | Needs vetting | **Conflicts with a locked decision:** fog is map-level and the only audience split is GM vs players (HANDOFF.md, docs/04). Per-player or per-group map views means per-audience state and a bigger visibility model. Decide scope before scheduling: is this per-player maps, or breakout "sub-tables"? |
+| Show a map to **only select** players (private/breakout view) | Needs vetting | **Conflicts with a locked decision:** fog is map-level and the only audience split is GM vs players (docs/04). Per-player or per-group map views means per-audience state and a bigger visibility model. Decide scope before scheduling: is this per-player maps, or breakout "sub-tables"? |
 | Build maps on the fly and save to the library | Proposed | In-app map editor: place/paint terrain, then persist to `game_maps`. Depends on the shape library below. |
 | Prebuilt shape library (boulders, rooms, doors, corridors, etc.) | Proposed | Reusable stamps/assets the GM drops onto a map while building. Needs an asset catalog + a place/transform tool in the editor. |
 
@@ -47,7 +47,7 @@ roadmap, not an as-built spec: for how shipped features actually work, see docs
 | Feature | Status | Notes |
 |---------|--------|-------|
 | System-agnostic character sheets (JSONB storage) | Done | Baseline storage + `sheet_update` handler. docs/02, docs/03 |
-| Character sheet UI wired to `sheet_update` | Candidate | Contract + server handler exist; no screen yet. Already in HANDOFF backlog. |
+| Character sheet UI wired to `sheet_update` | Candidate | Contract + server handler exist; no screen yet. |
 | Monster stat blocks / bestiary | Candidate | Reusable monster templates the GM spawns as tokens. |
 | Token-linked HP / condition tracking | Candidate | Show/edit HP and status effects on or near a token. |
 | Initiative / turn tracker | Candidate | Ordered turn list, current-turn marker, next/prev. |
@@ -82,9 +82,9 @@ roadmap, not an as-built spec: for how shipped features actually work, see docs
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Login / user-select screen (drop hardcoded seeded IDs) | Proposed | Frontend currently hardcodes GM/player IDs behind a HUD toggle. HANDOFF backlog #2. |
-| Pan / zoom camera | Proposed | Input math currently assumes stage coords == CSS pixels; a camera transform means converting through it. HANDOFF backlog #6. |
-| Committed automated test suite | Proposed | Verification used throwaway scripts (docs/06). HANDOFF backlog #5. |
+| Login / user-select screen (drop hardcoded seeded IDs) | Proposed | Frontend currently hardcodes GM/player IDs behind a HUD toggle. |
+| Pan / zoom camera | Proposed | Input math currently assumes stage coords == CSS pixels; a camera transform means converting through it. |
+| Committed automated test suite | Proposed | Verification used throwaway scripts (docs/06). |
 
 ---
 
