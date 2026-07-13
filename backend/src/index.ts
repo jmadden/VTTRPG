@@ -1,6 +1,7 @@
 // Local-host backend entrypoint: Express (assets + health) + Socket.io.
 import './env.js'; // MUST be first: loads .env before db.ts builds the pool.
 import { createServer } from 'node:http';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { Server } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@vtt/shared';
@@ -18,6 +19,23 @@ app.use('/assets', express.static(ASSET_DIR));
 app.get('/health', (_req, res) => {
   res.json({ ok: true, db: isDbConfigured() });
 });
+
+// Production / local-prod-parity: serve the built SPA same-origin (env-gated so
+// `npm run dev` is unaffected). Render and `npm start` set SERVE_CLIENT=1.
+if (process.env.SERVE_CLIENT === '1') {
+  const distDir = fileURLToPath(new URL('../../frontend/dist', import.meta.url));
+  const indexHtml = fileURLToPath(new URL('../../frontend/dist/index.html', import.meta.url));
+  app.use(express.static(distDir));
+  // SPA history fallback: serve index.html for client routes. Not for /api
+  // (future REST 404s must stay JSON), /assets, or non-GET. Socket.io owns
+  // /socket.io at the engine level, so Express never sees it.
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api') || req.path.startsWith('/assets')) {
+      return next();
+    }
+    res.sendFile(indexHtml);
+  });
+}
 
 const httpServer = createServer(app);
 const io = new Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>(

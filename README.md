@@ -1,12 +1,15 @@
-# VTT - Local Self-Hosted 2D Virtual Tabletop
+# VTT - Cloud-Hosted 2D Virtual Tabletop
 
-A system-agnostic 2D virtual tabletop that runs entirely on the Game Master's
-machine. Players connect over the local network (LAN IP) or an ngrok tunnel.
-Voice and video are handled by external tools (Discord, etc.).
+A system-agnostic 2D virtual tabletop deployed to a cloud host (Render). Play is
+always remote: players connect over the internet to a single public URL. The
+local setup below is for development. Voice and video are handled by external
+tools (Discord, etc.). See `docs/10-cloud-deployment.md` for the deployment
+design.
 
 **Stack:** React + PixiJS (frontend), Node + Express + Socket.io (backend),
-local PostgreSQL, TypeScript throughout. It is an npm-workspaces monorepo with a
-shared package that holds the WebSocket contract as a single source of truth.
+PostgreSQL (managed in the cloud; local for dev), TypeScript throughout. It is
+an npm-workspaces monorepo with a shared package that holds the WebSocket
+contract as a single source of truth.
 
 **Features implemented:**
 - Real-time token sync over Socket.io using tiny JSON deltas.
@@ -25,7 +28,7 @@ shared package that holds the WebSocket contract as a single source of truth.
 shared/    @vtt/shared - wire contract types + square/hex cell math
 backend/   Express + Socket.io + raw pg; db/schema.sql, db/seed.sql
 frontend/  Vite + React + TanStack Router + PixiJS
-docs/      design + as-built docs (01 architecture ... 06 verification)
+docs/      design + as-built docs (01 architecture ... 10 cloud deployment)
 ```
 
 ---
@@ -326,4 +329,8 @@ Run from the repo root:
 - `docs/04-visibility-filter.md` - the server-side anti-cheat pipeline
 - `docs/05-pixi-shroud-strategy.md` - rendering, fog of war, input/dragging
 - `docs/06-verification.md` - how the system is verified and how to reproduce it
+- `docs/07-features.md` - feature backlog and status tracker (roadmap)
+- `docs/08-per-audience-visibility.md` - per-player / per-audience fog design (not yet built)
+- `docs/09-login-and-identity.md` - login, sessions, and per-campaign roles design (not yet built)
+- `docs/10-cloud-deployment.md` - cloud hosting model on Render (decided, not yet built)
 - `shared/src/contracts.ts` - the authoritative payload types

@@ -6,8 +6,13 @@ import type { QueryResult, QueryResultRow } from 'pg';
 
 const { Pool } = pg;
 
+// Managed cloud Postgres (e.g. Render external connections) requires SSL; local
+// Postgres does not. Gate it on DATABASE_SSL so local dev is unchanged.
+const useSsl = process.env.DATABASE_SSL === '1' || process.env.DATABASE_SSL === 'true';
+
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
 });
 
 // Prevent an idle-client/connection error from crashing the process.
