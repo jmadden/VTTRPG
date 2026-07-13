@@ -1,15 +1,20 @@
--- Deterministic demo data for local dev / end-to-end testing.
+-- Deterministic demo data for local dev / tests.
 -- Apply after schema.sql:  psql -d vtt -f backend/db/seed.sql
 -- Idempotent: ON CONFLICT DO NOTHING on fixed UUIDs.
+-- Demo login PINs (bcrypt-hashed via pgcrypto below):
+--   Game Master = 1234   |   Player One = 4321
+-- These double as the committed-test-suite fixtures.
 
-INSERT INTO users (id, display_name, role) VALUES
-  ('11111111-1111-1111-1111-111111111111', 'Game Master', 'gm'),
-  ('22222222-2222-2222-2222-222222222222', 'Player One',  'player')
+INSERT INTO users (id, display_name, pin_hash) VALUES
+  ('11111111-1111-1111-1111-111111111111', 'Game Master', crypt('1234', gen_salt('bf', 10))),
+  ('22222222-2222-2222-2222-222222222222', 'Player One',  crypt('4321', gen_salt('bf', 10)))
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO campaigns (id, name, gm_user_id) VALUES
+-- join_code gates open join over a public URL. active_map_id is set after the
+-- map is inserted (below).
+INSERT INTO campaigns (id, name, gm_user_id, join_code) VALUES
   ('33333333-3333-3333-3333-333333333333', 'Demo Campaign',
-   '11111111-1111-1111-1111-111111111111')
+   '11111111-1111-1111-1111-111111111111', 'DEMO42')
 ON CONFLICT (id) DO NOTHING;
 
 -- Square grid, 70px cells, 16 x 12. A small revealed region in the top-left.
@@ -39,3 +44,13 @@ INSERT INTO tokens (id, map_id, character_sheet_id, name, type, x, y, hidden) VA
    '44444444-4444-4444-4444-444444444444',
    NULL, 'Lurking Orc', 'monster', 735, 385, true)
 ON CONFLICT (id) DO NOTHING;
+
+-- Memberships (GM + player). The GM row mirrors what campaign creation inserts.
+INSERT INTO campaign_members (campaign_id, user_id) VALUES
+  ('33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111'),
+  ('33333333-3333-3333-3333-333333333333', '22222222-2222-2222-2222-222222222222')
+ON CONFLICT DO NOTHING;
+
+-- Point the campaign at the demo map (active_map_id column added after game_maps).
+UPDATE campaigns SET active_map_id = '44444444-4444-4444-4444-444444444444'
+ WHERE id = '33333333-3333-3333-3333-333333333333';

@@ -118,6 +118,9 @@ export interface StateSyncPayload {
   // Ids of tokens this client may move (GM: all; player: tokens they own).
   // Point-in-time snapshot; the UI uses it to decide draggability.
   movableTokenIds: string[];
+  // Server-decided identity for this client (replaces the old HUD toggle).
+  role: 'gm' | 'player';
+  userId: string;
 }
 
 // ── sheet_update ────────────────────────────────────────────────────────────
@@ -130,15 +133,20 @@ export interface SheetUpdatePayload {
 }
 
 // ── join_map (client → server) ──────────────────────────────────────────────
+// Identity comes from the authenticated socket handshake, NOT the payload, so
+// `userId` is deliberately absent (it was the impersonation hole). The server
+// derives the role per campaign and replies via the ack.
 export interface JoinMapRequest {
   mapId: string;
-  userId: string;
 }
+export type JoinMapAck =
+  | { ok: true }
+  | { ok: false; reason: 'not_found' | 'not_member' | 'unauthorized' };
 
 // ── Typed event maps for socket.io generics (build-phase convenience) ────────
 
 export interface ClientToServerEvents {
-  [EV.JOIN_MAP]: (p: JoinMapRequest) => void;
+  [EV.JOIN_MAP]: (p: JoinMapRequest, ack: (res: JoinMapAck) => void) => void;
   [EV.TOKEN_MOVE]: (p: TokenMoveRequest) => void;
   [EV.REVEAL_TILES]: (p: RevealTilesRequest) => void;
   [EV.CONCEAL_TILES]: (p: ConcealTilesRequest) => void;

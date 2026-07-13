@@ -1,6 +1,14 @@
 // Data access layer: hand-written SQL mapped to the shared domain types.
 import { query } from './db.js';
-import type { CellKey, Grid, Token, TokenType } from '@vtt/shared';
+import type {
+  AuthUser,
+  CampaignDetail,
+  CampaignSummary,
+  CellKey,
+  Grid,
+  Token,
+  TokenType,
+} from '@vtt/shared';
 
 export interface MapState {
   mapId: string;
@@ -44,12 +52,172 @@ function toToken(r: TokenRow): Token {
   };
 }
 
-export async function getUserRole(userId: string): Promise<'gm' | 'player' | null> {
-  const res = await query<{ role: 'gm' | 'player' }>(
-    'SELECT role FROM users WHERE id = $1',
+// ── users / sessions ────────────────────────────────────────────────────────
+
+export async function createUser(displayName: string, pinHash: string): Promise<AuthUser> {
+  const res = await query<{ id: string; display_name: string }>(
+    'INSERT INTO users (display_name, pin_hash) VALUES ($1, $2) RETURNING id, display_name',
+    [displayName, pinHash],
+  );
+  const r = res.rows[0]!;
+  return { id: r.id, displayName: r.display_name };
+}
+
+export async function getUserByName(
+  displayName: string,
+): Promise<{ id: string; displayName: string; pinHash: string } | null> {
+  const res = await query<{ id: string; display_name: string; pin_hash: string }>(
+    'SELECT id, display_name, pin_hash FROM users WHERE lower(display_name) = lower($1)',
+    [displayName],
+  );
+  const r = res.rows[0];
+  return r ? { id: r.id, displayName: r.display_name, pinHash: r.pin_hash } : null;
+}
+
+export async function getUserById(userId: string): Promise<AuthUser | null> {
+  const res = await query<{ id: string; display_name: string }>(
+    'SELECT id, display_name FROM users WHERE id = $1',
     [userId],
   );
-  return res.rows[0]?.role ?? null;
+  const r = res.rows[0];
+  return r ? { id: r.id, displayName: r.display_name } : null;
+}
+
+export async function createSession(tokenHash: string, userId: string): Promise<void> {
+  await query('INSERT INTO sessions (token_hash, user_id) VALUES ($1, $2)', [tokenHash, userId]);
+}
+
+export async function getSessionUser(tokenHash: string): Promise<AuthUser | null> {
+  const res = await query<{ id: string; display_name: string }>(
+    `SELECT u.id, u.display_name
+       FROM sessions s JOIN users u ON u.id = s.user_id
+      WHERE s.token_hash = $1`,
+    [tokenHash],
+  );
+  const r = res.rows[0];
+  return r ? { id: r.id, displayName: r.display_name } : null;
+}
+
+export async function deleteSession(tokenHash: string): Promise<void> {
+  await query('DELETE FROM sessions WHERE token_hash = $1', [tokenHash]);
+}
+
+export async function touchSession(tokenHash: string): Promise<void> {
+  await query('UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1', [tokenHash]);
+}
+
+// ── campaigns / membership ────────────────────────────────────────────────
+
+export async function listCampaigns(userId: string): Promise<CampaignSummary[]> {
+  const res = await query<{
+    id: string;
+    name: string;
+    gm_name: string;
+    member_count: string;
+    is_member: boolean;
+    is_gm: boolean;
+  }>(
+    `SELECT c.id, c.name,
+            gm.display_name AS gm_name,
+            (SELECT count(*) FROM campaign_members m WHERE m.campaign_id = c.id) AS member_count,
+            EXISTS(SELECT 1 FROM campaign_members m WHERE m.campaign_id = c.id AND m.user_id = $1) AS is_member,
+            (c.gm_user_id = $1) AS is_gm
+       FROM campaigns c JOIN users gm ON gm.id = c.gm_user_id
+      ORDER BY c.created_at`,
+    [userId],
+  );
+  return res.rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    gmName: r.gm_name,
+    memberCount: Number(r.member_count),
+    isMember: r.is_member,
+    isGm: r.is_gm,
+  }));
+}
+
+/** Insert the campaign and the creator's GM member row atomically (CTE). */
+export async function createCampaign(
+  userId: string,
+  name: string,
+  joinCode: string | null,
+): Promise<CampaignDetail> {
+  const res = await query<{ id: string }>(
+    `WITH c AS (
+       INSERT INTO campaigns (name, gm_user_id, join_code)
+       VALUES ($1, $2, $3) RETURNING id, gm_user_id
+     ), m AS (
+       INSERT INTO campaign_members (campaign_id, user_id) SELECT id, gm_user_id FROM c
+     )
+     SELECT id FROM c`,
+    [name, userId, joinCode],
+  );
+  return (await getCampaignDetail(res.rows[0]!.id))!;
+}
+
+export async function joinCampaign(
+  userId: string,
+  campaignId: string,
+  joinCode: string | undefined,
+): Promise<{ ok: true } | { ok: false; reason: 'not_found' | 'bad_code' }> {
+  const c = await query<{ id: string; join_code: string | null }>(
+    'SELECT id, join_code FROM campaigns WHERE id = $1',
+    [campaignId],
+  );
+  const row = c.rows[0];
+  if (!row) return { ok: false, reason: 'not_found' };
+  if (row.join_code && row.join_code !== joinCode) return { ok: false, reason: 'bad_code' };
+  await query(
+    'INSERT INTO campaign_members (campaign_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+    [campaignId, userId],
+  );
+  return { ok: true };
+}
+
+export async function getCampaignDetail(campaignId: string): Promise<CampaignDetail | null> {
+  const c = await query<{
+    id: string;
+    name: string;
+    gm_user_id: string;
+    active_map_id: string | null;
+  }>('SELECT id, name, gm_user_id, active_map_id FROM campaigns WHERE id = $1', [campaignId]);
+  const row = c.rows[0];
+  if (!row) return null;
+  const m = await query<{ id: string; display_name: string; is_gm: boolean }>(
+    `SELECT u.id, u.display_name, (u.id = $2) AS is_gm
+       FROM campaign_members cm JOIN users u ON u.id = cm.user_id
+      WHERE cm.campaign_id = $1
+      ORDER BY cm.joined_at`,
+    [campaignId, row.gm_user_id],
+  );
+  return {
+    id: row.id,
+    name: row.name,
+    gmUserId: row.gm_user_id,
+    activeMapId: row.active_map_id,
+    members: m.rows.map((r) => ({ id: r.id, displayName: r.display_name, isGm: r.is_gm })),
+  };
+}
+
+export async function getCampaignForMap(
+  mapId: string,
+): Promise<{ campaignId: string; gmUserId: string } | null> {
+  const res = await query<{ campaign_id: string; gm_user_id: string }>(
+    `SELECT c.id AS campaign_id, c.gm_user_id
+       FROM game_maps gm JOIN campaigns c ON c.id = gm.campaign_id
+      WHERE gm.id = $1`,
+    [mapId],
+  );
+  const r = res.rows[0];
+  return r ? { campaignId: r.campaign_id, gmUserId: r.gm_user_id } : null;
+}
+
+export async function isCampaignMember(campaignId: string, userId: string): Promise<boolean> {
+  const res = await query(
+    'SELECT 1 FROM campaign_members WHERE campaign_id = $1 AND user_id = $2',
+    [campaignId, userId],
+  );
+  return res.rows.length > 0;
 }
 
 export async function getMapState(mapId: string): Promise<MapState | null> {

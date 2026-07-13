@@ -16,16 +16,20 @@ import {
 import {
   addRevealedTiles,
   applySheetUpdate,
+  getCampaignForMap,
   getMapState,
   getOwnedSheetIds,
+  getSessionUser,
   getSheetOwner,
   getToken,
   getTokenOwner,
   getTokens,
-  getUserRole,
+  isCampaignMember,
   removeRevealedTiles,
+  touchSession,
   updateTokenPosition,
 } from '../repo.js';
+import { sha256 } from '../auth.js';
 
 export interface SocketData {
   userId?: string;
@@ -40,22 +44,47 @@ const gmRoom = (mapId: string) => `map:${mapId}:gm`;
 const playersRoom = (mapId: string) => `map:${mapId}:players`;
 
 export function registerSocketHandlers(io: VttServer): void {
-  io.on('connection', (socket: VttSocket) => {
-    socket.on(EV.JOIN_MAP, async ({ mapId, userId }) => {
-      try {
-        const role = await getUserRole(userId);
-        if (!role) return; // unknown user: ignore
-        const state = await getMapState(mapId);
-        if (!state) return;
+  // Handshake auth: establish identity once per socket from the session token,
+  // before any event handler runs. `userId` no longer travels in join_map.
+  io.use(async (socket, next) => {
+    try {
+      const token = (socket.handshake.auth as { token?: string } | undefined)?.token;
+      if (!token) return next(new Error('unauthorized'));
+      const tokenHash = sha256(token);
+      const user = await getSessionUser(tokenHash);
+      if (!user) return next(new Error('unauthorized'));
+      socket.data.userId = user.id;
+      void touchSession(tokenHash);
+      next();
+    } catch {
+      next(new Error('unauthorized'));
+    }
+  });
 
-        // Leave any previously joined map's rooms so a role/map switch on the
-        // same socket does not linger in both rooms.
+  io.on('connection', (socket: VttSocket) => {
+    socket.on(EV.JOIN_MAP, async ({ mapId }, ack) => {
+      try {
+        const userId = socket.data.userId;
+        if (!userId) return ack?.({ ok: false, reason: 'unauthorized' });
+
+        const campaign = await getCampaignForMap(mapId);
+        if (!campaign) return ack?.({ ok: false, reason: 'not_found' });
+        if (!(await isCampaignMember(campaign.campaignId, userId))) {
+          return ack?.({ ok: false, reason: 'not_member' });
+        }
+        const state = await getMapState(mapId);
+        if (!state) return ack?.({ ok: false, reason: 'not_found' });
+
+        // Role is derived per campaign: the campaign's GM, else a player.
+        const role: 'gm' | 'player' = userId === campaign.gmUserId ? 'gm' : 'player';
+
+        // Leave any previously joined map's rooms so a map switch on the same
+        // socket does not linger in both rooms.
         if (socket.data.mapId) {
           await socket.leave(gmRoom(socket.data.mapId));
           await socket.leave(playersRoom(socket.data.mapId));
         }
 
-        socket.data.userId = userId;
         socket.data.role = role;
         socket.data.mapId = mapId;
         const isGM = role === 'gm';
@@ -85,9 +114,13 @@ export function registerSocketHandlers(io: VttServer): void {
           revealed: state.revealed,
           tokens: filterTokensForClient(tokens, revealed, state.grid, isGM),
           movableTokenIds,
+          role,
+          userId,
         });
+        ack?.({ ok: true });
       } catch (err) {
         console.error('[socket] join_map failed:', (err as Error).message);
+        ack?.({ ok: false, reason: 'not_found' });
       }
     });
 

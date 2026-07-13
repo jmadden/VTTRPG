@@ -1,20 +1,21 @@
 -- ============================================================================
--- VTT — Local PostgreSQL schema
+-- VTT — PostgreSQL schema
 -- Apply with:  psql "$DATABASE_URL" -f backend/db/schema.sql
 --
--- Local-host trust model: no password hashing, just local account profiles.
--- System-agnostic character data lives in a JSONB column (`system_data`).
--- Fog-of-war state lives in a JSONB array of canonical cell keys
--- (`revealed_tiles`), geometry-agnostic across square and hex grids.
+-- Identity: login by display name + a bcrypt-hashed PIN (see backend auth).
+-- Role is NOT stored on the user; it is derived per campaign (creator = GM).
+-- System-agnostic character data lives in JSONB (`system_data`). Fog-of-war
+-- state lives in a JSONB array of canonical cell keys (`revealed_tiles`),
+-- geometry-agnostic across square and hex grids.
+--
+-- Pre-release: this schema is edited in place and the DB is reset, never
+-- migrated (`npm run db:reset`). CREATE TABLE IF NOT EXISTS will not alter an
+-- existing table, so column changes require a reset.
 -- ============================================================================
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- for gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid(), crypt()/gen_salt()
 
 -- ── Enums ───────────────────────────────────────────────────────────────────
-DO $$ BEGIN
-  CREATE TYPE user_role  AS ENUM ('gm', 'player');
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-
 DO $$ BEGIN
   CREATE TYPE grid_type  AS ENUM ('square', 'hex');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
@@ -24,24 +25,52 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── users ─────────────────────────────────────────────────────────────────
--- Simple local profiles. `pin` is an optional convenience gate, NOT security.
+-- Login by display name (case-insensitive unique) + a bcrypt-hashed PIN.
 CREATE TABLE IF NOT EXISTS users (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   display_name TEXT        NOT NULL,
-  role         user_role   NOT NULL DEFAULT 'player',
-  pin          TEXT,                         -- optional, plaintext, local-only
+  pin_hash     TEXT        NOT NULL,          -- bcrypt (bcryptjs / pgcrypto bf)
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Names are the login key, so they must be unique; lower() blocks "Bob"/"bob".
+CREATE UNIQUE INDEX IF NOT EXISTS users_display_name_unique ON users (lower(display_name));
+
+-- ── sessions ────────────────────────────────────────────────────────────────
+-- Survive restarts. Only sha256(token) is stored; the raw token is returned to
+-- the client once at login and never persisted.
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash   TEXT PRIMARY KEY,
+  user_id      UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
 -- ── campaigns ───────────────────────────────────────────────────────────────
+-- `join_code` (nullable) gates open join over a public URL. `active_map_id` is
+-- added after game_maps (forward reference resolved at the bottom of the file).
 CREATE TABLE IF NOT EXISTS campaigns (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name       TEXT        NOT NULL,
   gm_user_id UUID        NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  join_code  TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_campaigns_gm ON campaigns(gm_user_id);
+
+-- ── campaign_members ──────────────────────────────────────────────────────
+-- Explicit membership. The GM gets a row too (inserted at campaign creation),
+-- so "list this campaign's members" is one uniform query. Role is never stored
+-- here; it is always derived from campaigns.gm_user_id.
+CREATE TABLE IF NOT EXISTS campaign_members (
+  campaign_id UUID NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  user_id     UUID NOT NULL REFERENCES users(id)     ON DELETE CASCADE,
+  joined_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (campaign_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS campaign_members_user_idx ON campaign_members (user_id);
 
 -- ── character_sheets ──────────────────────────────────────────────────────
 -- `system_data` holds the entire system-agnostic sheet (any RPG system).
@@ -98,6 +127,10 @@ CREATE TABLE IF NOT EXISTS tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tokens_map ON tokens(map_id);
+
+-- ── campaigns.active_map_id (forward reference to game_maps, resolved here) ──
+ALTER TABLE campaigns
+  ADD COLUMN IF NOT EXISTS active_map_id UUID REFERENCES game_maps(id) ON DELETE SET NULL;
 
 -- ============================================================================
 -- Example: applying a single nested `sheet_update` with jsonb_set.
