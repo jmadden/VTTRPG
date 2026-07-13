@@ -29,14 +29,14 @@ campaign and a player in another. The fixed `users.role` column is dropped.
 
 ## 2. Threat model (honest framing)
 
-Display name + 4-6 digit PIN, over plain HTTP on LAN and possibly-public ngrok.
-This stops **casual impersonation**: a player typing the GM's ID, a stranger who
-finds the tunnel URL and clicks around. It does not stop a determined attacker
-(a 6-digit PIN space is 10^6; LAN transport is unencrypted). Mitigations are
-sized to that reality: bcrypt-hashed PINs, per-name rate limiting, and random
-256-bit session tokens. If a tunnel must be hardened further, run
-`ngrok http --basic-auth` as an outer layer; that is deployment advice, not
-architecture.
+Display name + 4-6 digit PIN, served over HTTPS. Play is always remote on a
+public URL (cloud host, see docs/10), so transport is encrypted and the app is
+internet-reachable whenever it is up. This stops **casual impersonation**: a
+player typing the GM's ID, a stranger who finds the URL and clicks around. It
+does not stop a determined attacker (a 6-digit PIN space is only 10^6). The
+residual risk is that small PIN space, not the transport. Mitigations are sized
+to that reality: bcrypt-hashed PINs, per-name rate limiting, and random 256-bit
+session tokens.
 
 ## 3. Data model deltas
 
@@ -103,13 +103,13 @@ yet.
   fine at this trust level; a restart clearing counters is acceptable.
 - **Generic failures:** login returns the same 401 ("wrong name or PIN") whether
   the name exists or not, so the endpoint cannot be used to enumerate users.
-- **Session transport: a bearer token in localStorage, not cookies.** This is
-  settled by the LAN case, not preference: the frontend (:5173) and backend
-  (:4000) are cross-origin, so cookies would need `SameSite=None; Secure`, and
-  `Secure` requires HTTPS, which plain `http://192.168.x.x` LAN access does not
-  have. Cookies would work over ngrok and silently break over LAN. A bearer
-  token works identically for both and is CSRF-immune (no ambient credentials).
-  The tradeoff is XSS token theft, acceptable with no third-party content.
+- **Session transport: a bearer token in localStorage, not cookies.** Production
+  is same-origin over HTTPS (the backend serves the SPA; see docs/10), so
+  `Secure` cookies would technically work. Bearer tokens are still preferred:
+  they are origin-agnostic (identical behavior in cloud and in cross-origin local
+  dev, where the Vite :5173 and backend :4000 origins differ) and CSRF-immune (no
+  ambient credentials). The tradeoff is XSS token theft, acceptable with no
+  third-party content.
 - **Expiry: none.** Sessions live until logout (or PIN reset). Hygiene: bump
   `last_seen_at` on socket handshake; purge sessions idle more than 30 days at
   server boot.

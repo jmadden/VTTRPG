@@ -91,6 +91,7 @@ roadmap, not an as-built spec: for how shipped features actually work, see docs
 | Campaign lobby (create = GM, join = player, enter active map) | Proposed | Login lands on a lobby: create a campaign to GM it, join one to play. New `campaign_members` table; `campaigns.active_map_id`. See docs/09. |
 | Per-campaign join code (harden open join) | Candidate | Any registered user can join any campaign today by design; a 6-char code gates it if a tunnel URL leaks. See docs/09. |
 | Player presence indicator (who is connected) | Candidate | Includes a `member_joined` broadcast so the GM's member list is not stale. See docs/09. |
+| Cloud deployment on Render (the hosting model) | Proposed | **Decided: full cloud host, always remote; local is dev only. See docs/10.** One same-origin web service (SPA + API + sockets) + managed Postgres; drops ngrok; solves data continuity. Hard-blocked on the login above. Cost $0 (validate) to ~$13-14/mo. |
 | Pan / zoom camera | Proposed | Input math currently assumes stage coords == CSS pixels; a camera transform means converting through it. |
 | Committed automated test suite | Proposed | Verification used throwaway scripts (docs/06). |
 
@@ -103,5 +104,4 @@ Deliberately deferred. Logged so we do not lose them.
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Voice & video inside the platform | Future | Currently external (Discord, etc.). Revisit only if external tooling becomes a real friction point. |
-| Move off a single local host to better infrastructure | Future | **Assessed for Render, see docs/brainstorming-render-hosting.md: difficulty is low.** Render can be an added deploy target (one same-origin web service + Postgres) without dropping local play; gated on the docs/09 login. Cost options from $0 (all free, monthly DB expiry) to ~$13-14/mo always-on. |
 | 3D graphics | Future | The renderer is PixiJS 2D by design. A 3D mode is a separate rendering path, not an increment. |

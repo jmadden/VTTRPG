@@ -1,6 +1,6 @@
-Act as a Principal Software Engineer and System Architect. I want to plan and scaffold a local, self-hosted, system-agnostic 2D Virtual Tabletop (VTT) system using React, Node.js, WebSockets, and a local PostgreSQL database.
+Act as a Principal Software Engineer and System Architect. I want to plan and scaffold a self-hosted, cloud-deployed, system-agnostic 2D Virtual Tabletop (VTT) system using React, Node.js, WebSockets, and PostgreSQL.
 
-We are adopting a "Local Host" model: the entire stack runs on the GM's machine, and players connect via local network IP or an ngrok tunnel. External tools will handle voice/video.
+We are adopting a cloud-hosted model: the stack is deployed to a cloud host (Render) and play is always remote, with players connecting over the internet to a single public URL. Local setup is for development only. External tools will handle voice/video. See docs/10 for the deployment design.
 
 Our core architectural constraints are:
 
