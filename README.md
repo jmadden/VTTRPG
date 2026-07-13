@@ -326,4 +326,5 @@ Run from the repo root:
 - `docs/04-visibility-filter.md` - the server-side anti-cheat pipeline
 - `docs/05-pixi-shroud-strategy.md` - rendering, fog of war, input/dragging
 - `docs/06-verification.md` - how the system is verified and how to reproduce it
+- `docs/07-features.md` - feature backlog and status tracker (roadmap)
 - `shared/src/contracts.ts` - the authoritative payload types
