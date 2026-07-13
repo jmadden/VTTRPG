@@ -1,21 +1,21 @@
 import { io, type Socket } from 'socket.io-client';
-import { EV, type ClientToServerEvents, type ServerToClientEvents } from '@vtt/shared';
+import type { ClientToServerEvents, ServerToClientEvents } from '@vtt/shared';
+import { getToken } from './api';
 
-// Generic order is <Listen, Emit>: server→client events first, client→server second.
+// Generic order is <Listen, Emit>: server->client events first, client->server.
 // Empty/unset VITE_SERVER_URL means same-origin (production build served by the
-// backend, and the local prod-parity run). Dev falls back to the :4000 backend.
-const SERVER_URL = import.meta.env.VITE_SERVER_URL
-  || (import.meta.env.DEV ? 'http://localhost:4000' : undefined);
+// backend); dev falls back to the :4000 backend.
+const SERVER_URL =
+  import.meta.env.VITE_SERVER_URL || (import.meta.env.DEV ? 'http://localhost:4000' : undefined);
 
-// The `io()` overload does not accept explicit type args, so annotate the
-// result instead (the default DefaultEventsMap socket is asserted to our maps).
-// With no URL, socket.io connects to the current origin.
-export const socket = (SERVER_URL
-  ? io(SERVER_URL, { autoConnect: false })
-  : io({ autoConnect: false })) as Socket<ServerToClientEvents, ClientToServerEvents>;
+// Identity travels in the handshake auth, re-read on every (re)connect so a
+// fresh login/logout takes effect without recreating the socket.
+const opts = {
+  autoConnect: false,
+  auth: (cb: (data: { token: string | null }) => void) => cb({ token: getToken() }),
+};
 
-/** Connect and announce which map/user we are. Call once the scene is ready. */
-export function connect(mapId: string, userId: string): void {
-  socket.connect();
-  socket.emit(EV.JOIN_MAP, { mapId, userId });
-}
+export const socket = (SERVER_URL ? io(SERVER_URL, opts) : io(opts)) as Socket<
+  ServerToClientEvents,
+  ClientToServerEvents
+>;

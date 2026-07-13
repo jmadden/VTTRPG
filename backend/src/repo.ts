@@ -116,8 +116,9 @@ export async function listCampaigns(userId: string): Promise<CampaignSummary[]> 
     member_count: string;
     is_member: boolean;
     is_gm: boolean;
+    active_map_id: string | null;
   }>(
-    `SELECT c.id, c.name,
+    `SELECT c.id, c.name, c.active_map_id,
             gm.display_name AS gm_name,
             (SELECT count(*) FROM campaign_members m WHERE m.campaign_id = c.id) AS member_count,
             EXISTS(SELECT 1 FROM campaign_members m WHERE m.campaign_id = c.id AND m.user_id = $1) AS is_member,
@@ -133,6 +134,7 @@ export async function listCampaigns(userId: string): Promise<CampaignSummary[]> 
     memberCount: Number(r.member_count),
     isMember: r.is_member,
     isGm: r.is_gm,
+    activeMapId: r.active_map_id,
   }));
 }
 

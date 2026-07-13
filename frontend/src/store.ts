@@ -8,6 +8,7 @@
 
 import {
   revealedSet,
+  type AuthUser,
   type CellKey,
   type ClientToken,
   type Grid,
@@ -28,6 +29,8 @@ export const state = {
   isGM: false,
   // Token ids this client may drag (from state_sync).
   movable: new Set<string>(),
+  // The logged-in user (null when signed out). Drives the route guard.
+  session: null as { user: AuthUser } | null,
 };
 
 type Listener = () => void;
@@ -60,18 +63,25 @@ export function setGrid(grid: Grid, dims: GridDims): void {
   notify();
 }
 
-export function setIsGM(isGM: boolean): void {
-  state.isGM = isGM;
+/** The logged-in user (mirrors localStorage token via api.ts). */
+export function setSession(user: AuthUser): void {
+  state.session = { user };
+  notify();
+}
+export function clearSession(): void {
+  state.session = null;
   notify();
 }
 
-/** Replace all state from an initial server snapshot. */
+/** Replace all state from an initial server snapshot. `role` is server-decided
+ *  (there is no client toggle anymore); it drives the shroud alpha + draggability. */
 export function applyStateSync(p: StateSyncPayload): void {
   state.grid = { type: p.gridType, size: p.gridSize };
   state.gridDims = { cols: p.cols, rows: p.rows };
   state.revealed = revealedSet(p.revealed);
   state.tokens = new Map(p.tokens.map((t) => [t.id, t]));
   state.movable = new Set(p.movableTokenIds);
+  state.isGM = p.role === 'gm';
   notify();
 }
 

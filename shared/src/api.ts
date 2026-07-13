@@ -30,6 +30,7 @@ export interface CampaignSummary {
   memberCount: number;
   isMember: boolean;
   isGm: boolean;
+  activeMapId: string | null;
 }
 
 /** A member row in the campaign detail. */
