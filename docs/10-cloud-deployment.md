@@ -85,9 +85,11 @@ All small and env-gated, so local `npm run dev` is unaffected:
    only pins `>=20`), and the `db:reset` script noted in docs/09. Build command
    is the existing root `npm run build`; start is `npm run start -w backend`.
 
-Estimated Render plumbing effort: roughly half a day, mostly first-deploy env
-wiring and confirming the socket connects over TLS. The larger dependency is
-building the docs/09 login (section 8).
+**These four deltas are now implemented behind env flags** (local `npm run dev`
+is unchanged); section 6 shows how to build and run them locally. The remaining
+Render plumbing (provisioning the service and DB, first-deploy env wiring) is
+roughly half a day. The larger dependency is building the docs/09 login
+(section 9), which blocks going public.
 
 ## 5. Database on Render
 
@@ -98,12 +100,44 @@ building the docs/09 login (section 8).
 - Add the missing `db:reset` (drop schema, re-run setup); pre-release we reset
   rather than migrate (docs/09 §8).
 - Free Postgres is 1 GB, ample for JSONB sheets, fog arrays, and tokens. Expiry
-  is the catch (section 6).
+  is the catch (section 7).
 - Continuity is now a first-class property: the database is the single home for
   all game data, and a paid instance carries automatic point-in-time recovery
   backups. Nothing lives only on the GM's laptop.
 
-## 6. Cost and on/off
+## 6. Local build and test parity
+
+Before deploying, run the exact production setup on your machine. The env-gated
+deltas from section 4 make the backend serve the built SPA same-origin, just
+like Render.
+
+```bash
+npm run serve        # build (shared + backend + frontend/dist) then serve on :4000
+# or, iterating:
+npm run build && npm start
+```
+
+Open `http://localhost:4000` (single origin): the SPA, REST, and WebSocket are
+all on one port with no CORS, exactly the Render layout. `npm run dev` (Vite
+:5173 + backend :4000) is unchanged, because SPA serving is gated behind
+`SERVE_CLIENT` (set only by `npm start` / `npm run serve` and on Render).
+
+Environment flags:
+- `SERVE_CLIENT=1` - backend serves `frontend/dist` with an SPA fallback.
+- `VITE_SERVER_URL` empty - the built client uses its own origin for the socket.
+- `DATABASE_SSL=1` - only for a managed cloud DB that requires SSL; unset for
+  local Postgres.
+
+`npm run db:reset` drops and rebuilds the schema + seed (pre-release we reset,
+never migrate). Verified locally: `/health` returns `{"ok":true,"db":true}`, the
+SPA is served at `/`, deep links fall back to `index.html`, `/socket.io`
+handshakes on the same origin, and unknown `/api/*` routes 404 (not masked by
+the SPA fallback).
+
+Local-test then deploy: run `npm run serve`, click through, then push. Render
+runs the same `npm run build` / `npm run start -w backend` from `render.yaml`.
+
+## 7. Cost and on/off
 
 Cloud is the model, but you still want it cheap and effectively "off" between
 sessions. Current numbers:
@@ -120,7 +154,7 @@ Notes:
 - Recommended path: deploy on **A** to validate end to end, then move the
   database to **B** as soon as there is campaign data worth keeping.
 
-## 7. Gotchas
+## 8. Gotchas
 
 - **Free Postgres expires every ~30 days.** Removed by Option B.
 - **Ephemeral filesystem.** `ASSET_DIR=./uploads` does not survive a redeploy or
@@ -132,7 +166,7 @@ Notes:
   autoscale. If we ever must scale, force the websocket transport (drop HTTP
   long-polling) and add a shared Socket.io adapter.
 
-## 8. Hard dependency: login must ship first
+## 9. Hard dependency: login must ship first
 
 A public URL that is up whenever you play turns the current "any client can
 claim any `userId`" hole (docs/09 §1) into a standing invitation to impersonate
@@ -141,16 +175,16 @@ optional follow-up. Render serves HTTPS automatically, which also means the
 plain-HTTP transport concern that shaped some of docs/09 no longer applies in
 production (bearer tokens remain the recommendation regardless).
 
-## 9. Order of operations
+## 10. Order of operations
 
 1. Build the docs/09 login (name + PIN, sessions, socket handshake auth). Blocker.
-2. Add the same-origin static serve, pg SSL handling, and same-origin socket
-   default (all env-gated).
-3. Add `render.yaml`, `.node-version`, and `db:reset`.
-4. Deploy on the all-free tier (Option A); provision + seed the DB; confirm a
+2. (Done) Local prod parity + Render artifacts: same-origin static serve, pg SSL
+   env-gate, same-origin socket, `render.yaml`, `.node-version`, `db:reset`
+   (section 6).
+3. Deploy on the all-free tier (Option A); provision + seed the DB; confirm a
    real login round-trips and the socket connects over TLS.
-5. Move the database to Option B once there is campaign data worth keeping.
-6. Revisit persistent storage when map-image upload is built.
+4. Move the database to Option B once there is campaign data worth keeping.
+5. Revisit persistent storage when map-image upload is built.
 
 Build-order note: docs/09 (login) and docs/08 (per-audience fog) both precede a
 public launch; login is the hard blocker, and the fog work depends on the
