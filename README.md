@@ -328,4 +328,5 @@ Run from the repo root:
 - `docs/06-verification.md` - how the system is verified and how to reproduce it
 - `docs/07-features.md` - feature backlog and status tracker (roadmap)
 - `docs/08-per-audience-visibility.md` - per-player / per-audience fog design (not yet built)
+- `docs/09-login-and-identity.md` - login, sessions, and per-campaign roles design (not yet built)
 - `shared/src/contracts.ts` - the authoritative payload types
