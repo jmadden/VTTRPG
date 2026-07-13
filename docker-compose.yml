@@ -1,0 +1,71 @@
+# One stack, three run modes:
+#   local test / tunnel : docker compose up -d --build            (app on 127.0.0.1:4000)
+#   DigitalOcean        : docker compose --profile edge up -d --build   (adds Caddy on 80/443)
+# The vtt-app container serves the SPA + API + Socket.io same-origin in all modes.
+services:
+  postgres-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vtt}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-vtt}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./backend/db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro   # remove this line for a clean prod DB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vtt} -d ${POSTGRES_DB:-vtt}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  vtt-app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-vtt}:${POSTGRES_PASSWORD}@postgres-db:5432/${POSTGRES_DB:-vtt}
+      SERVE_CLIENT: "1"
+      PORT: "4000"
+      ASSET_DIR: /app/uploads
+    # Loopback by default: reachable by localhost and by host-run tunnels
+    # (ngrok/Tailscale), but NOT exposed on a droplet's public interface.
+    # Set APP_BIND=0.0.0.0 for direct LAN play.
+    ports:
+      - "${APP_BIND:-127.0.0.1}:4000:4000"
+    volumes:
+      - uploads:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # DigitalOcean / real-domain TLS only. Not started in local modes.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["edge"]
+    restart: unless-stopped
+    depends_on:
+      - vtt-app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # ":80" serves plain HTTP; a bare domain (e.g. vtt.example.com) triggers
+      # automatic Let's Encrypt HTTPS. Default avoids interpolation errors in
+      # local mode where this var is unset.
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:
+  caddy_config:

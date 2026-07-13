@@ -2,13 +2,15 @@
 
 Read this first if you are a new AI instance picking up this project. It is the
 fastest path to being productive without re-deriving context. Last updated
-2026-07-12.
+2026-07-13.
 
 ## What this is
 
-A local, self-hosted, system-agnostic 2D virtual tabletop (VTT). The whole stack
-runs on the Game Master's machine; players connect over LAN IP or an ngrok
-tunnel. Voice/video is external.
+A system-agnostic 2D virtual tabletop (VTT). It runs as one Docker stack,
+hostable two ways: self-hosted on the GM's machine with players joining via an
+ngrok or Tailscale tunnel, or on a DigitalOcean droplet with Caddy for automatic
+TLS. The backend serves the SPA + API + sockets same-origin in both. See docs/10.
+Voice/video is external.
 
 Stack: React + PixiJS v8 (frontend), Node + Express + Socket.io + raw `pg`
 (backend), local PostgreSQL, TypeScript throughout. npm-workspaces monorepo with

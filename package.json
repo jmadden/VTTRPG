@@ -2,7 +2,7 @@
   "name": "vtt",
   "version": "0.1.0",
   "private": true,
-  "description": "Local self-hosted, system-agnostic 2D Virtual Tabletop",
+  "description": "System-agnostic 2D Virtual Tabletop (Docker; self-host + tunnel or DigitalOcean)",
   "workspaces": [
     "shared",
     "backend",
@@ -17,6 +17,9 @@
     "db:seed": "psql \"$DATABASE_URL\" -f backend/db/seed.sql",
     "db:setup": "npm run db:init && npm run db:seed",
     "db:reset": "psql \"$DATABASE_URL\" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;' && npm run db:setup",
+    "deploy:local": "docker compose up -d --build",
+    "deploy:cloud": "docker compose --profile edge up -d --build",
+    "deploy:down": "docker compose down",
     "typecheck": "npm run typecheck -w shared && npm run typecheck -w backend && npm run typecheck -w frontend"
   },
   "devDependencies": {

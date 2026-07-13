@@ -1,15 +1,16 @@
 # VTT - Cloud-Hosted 2D Virtual Tabletop
 
-A system-agnostic 2D virtual tabletop deployed to a cloud host (Render). Play is
-always remote: players connect over the internet to a single public URL. The
-local setup below is for development. Voice and video are handled by external
-tools (Discord, etc.). See `docs/10-cloud-deployment.md` for the deployment
-design.
+A system-agnostic 2D virtual tabletop that runs as one Docker stack, hostable two
+ways: self-host it on your own machine and let remote players in via a tunnel
+(ngrok or Tailscale), or deploy it to a DigitalOcean droplet where Caddy provides
+automatic TLS. Play is remote in both. Voice and video are handled by external
+tools (Discord, etc.). See `docs/10-cloud-deployment.md` for the deployment guide
+(all three run modes).
 
 **Stack:** React + PixiJS (frontend), Node + Express + Socket.io (backend),
-PostgreSQL (managed in the cloud; local for dev), TypeScript throughout. It is
-an npm-workspaces monorepo with a shared package that holds the WebSocket
-contract as a single source of truth.
+PostgreSQL (Dockerized in the deployment stack; local for dev), TypeScript
+throughout. It is an npm-workspaces monorepo with a shared package that holds the
+WebSocket contract as a single source of truth.
 
 **Features implemented:**
 - Real-time token sync over Socket.io using tiny JSON deltas.
@@ -28,7 +29,7 @@ contract as a single source of truth.
 shared/    @vtt/shared - wire contract types + square/hex cell math
 backend/   Express + Socket.io + raw pg; db/schema.sql, db/seed.sql
 frontend/  Vite + React + TanStack Router + PixiJS
-docs/      design + as-built docs (01 architecture ... 10 cloud deployment)
+docs/      design + as-built docs (01 architecture ... 10 deployment: Docker + DigitalOcean)
 ```
 
 ---
@@ -332,5 +333,5 @@ Run from the repo root:
 - `docs/07-features.md` - feature backlog and status tracker (roadmap)
 - `docs/08-per-audience-visibility.md` - per-player / per-audience fog design (not yet built)
 - `docs/09-login-and-identity.md` - login, sessions, and per-campaign roles design (not yet built)
-- `docs/10-cloud-deployment.md` - cloud hosting model on Render (decided, not yet built)
+- `docs/10-cloud-deployment.md` - deployment: one Docker stack, three modes (local, self-host + tunnel, DigitalOcean); built and verified locally
 - `shared/src/contracts.ts` - the authoritative payload types

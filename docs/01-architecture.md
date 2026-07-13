@@ -1,7 +1,10 @@
 # 01 - Directory Structure & Scaffolding
 
-Local-host, system-agnostic 2D VTT. The entire stack runs on the GM's machine;
-players connect over LAN IP or an ngrok tunnel. Voice/video is external.
+System-agnostic 2D VTT. It runs as one Docker stack that can be self-hosted on
+the GM's machine (players join via an ngrok or Tailscale tunnel) or deployed to a
+DigitalOcean droplet (Caddy provides automatic TLS); in both, the backend serves
+the SPA + API + sockets same-origin. See docs/10. The local dev workflow
+(`npm run dev`) is described below. Voice/video is external.
 
 This doc describes the system **as built**. For setup and run instructions see
 the root `README.md`.

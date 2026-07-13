@@ -13,8 +13,9 @@ Today there is no identity at all:
   toggle (`frontend/src/routes/MapView.tsx`).
 - The socket layer trusts whatever `userId` the client puts in `join_map`. The
   server checks that the user *exists* (`getUserRole`) and then grants that
-  user's role. **Any client can claim the GM's UUID and get GM powers.** Over an
-  ngrok tunnel, which can be internet-reachable, that is an open door.
+  user's role. **Any client can claim the GM's UUID and get GM powers.** On a
+  public deployment (docs/10), which is internet-reachable whenever it is up,
+  that is an open door.
 
 The identity rule this design installs:
 
@@ -98,7 +99,8 @@ yet.
 - **PIN storage: bcrypt** (cost ~10). Compare latency (~50-100ms) is itself a
   mild brute-force brake.
 - **Rate limiting:** in-memory fixed window keyed by `lower(display_name)`,
-  **not** by IP, because ngrok collapses every remote player to one edge IP.
+  **not** by IP, because behind the reverse proxy remote players share the
+  proxy's IP unless the forwarded header is parsed.
   Five failures locks the name for 60 seconds; success resets. In-memory is
   fine at this trust level; a restart clearing counters is acceptable.
 - **Generic failures:** login returns the same 401 ("wrong name or PIN") whether
@@ -253,7 +255,7 @@ blip) do rejoin automatically because MapView is still mounted.
   row, and rooms are role-keyed rather than user-unique, so two GM sockets
   coexist (GM laptop + tablet is a real use case). No "kick other session"
   semantics.
-- **Open join over ngrok:** any registered user can see and join any campaign.
+- **Open join over a public URL:** any registered user can see and join any campaign.
   Acceptable for a trust circle. The designated future hardening if a tunnel
   URL leaks is a per-campaign 6-character join code: one nullable column and
   one check in `/join`, nothing else changes.
@@ -283,6 +285,6 @@ Open questions (not blocking):
 - Per-campaign join codes (see section 9): add when a real need appears.
 - Presence (who is connected) and a `member_joined` broadcast: design when the
   lobby/GM UX needs them.
-- Whether the backend should serve `frontend/dist` in production-ish use so one
-  ngrok tunnel covers both HTTP and sockets (everything becomes same-origin;
-  bearer tokens keep working unchanged either way).
+- Backend serving `frontend/dist` in production is settled: `SERVE_CLIENT=1`
+  makes the SPA, API, and sockets same-origin behind Caddy (docs/10); bearer
+  tokens keep working unchanged.

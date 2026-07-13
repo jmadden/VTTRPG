@@ -1,191 +1,159 @@
-# 10 - Cloud Deployment (Render)
+# 10 - Deployment (Docker: self-host + tunnel, or DigitalOcean)
 
-**Status: decided, not yet built.** Full cloud hosting on Render is the chosen
-model for how this game is run. Play is always remote (there is effectively no
-LAN/co-located play), so a stable public server is required for every session.
-This doc is the design; nothing here is implemented yet. It supersedes the
-local-host + ngrok model as the *deployment* target; local setup remains only
-for development.
+**Status: built and verified locally.** One Docker stack runs in three modes
+from the same image: a local test, self-hosting with a public tunnel (ngrok or
+Tailscale), or a DigitalOcean droplet behind Caddy. This supersedes the earlier
+Render plan (removed).
 
-Render figures were verified against render.com docs (July 2026); pricing and
-free-tier terms change, so re-check render.com/pricing before acting.
+Why one build covers all of it: the production runtime is same-origin. The
+backend serves the built SPA + REST + Socket.io on one port (`SERVE_CLIENT=1`,
+`backend/src/index.ts`), and the SPA is built with an empty `VITE_SERVER_URL`,
+so the client connects its socket to whatever URL it was loaded from. The same
+image therefore works at `http://localhost:4000`, a `*.ngrok-free.app` URL, a
+`*.ts.net` Funnel URL, or a real domain, with no rebuild and no CORS config. No
+application code changes.
 
-## 1. Why cloud, and why this was reopened
-
-An earlier pass concluded cloud offered "no real advantage." That conclusion
-rested on LAN being a consideration (LAN is the lowest-latency path; a cloud DB
-would break a no-wifi game night; ngrok is only occasional). Once play is
-**always remote**, those objections disappear and the picture inverts:
-
-- ngrok becomes mandatory for **every** session, permanently. A stable cloud URL
-  removes it entirely (public URL + automatic TLS).
-- The server never renders (all PixiJS rendering is client-side), so this is not
-  a hardware/performance decision. Cloud's value is **availability and
-  durability**, not horsepower.
-- A managed database solves data **continuity** for free: a dead or stolen
-  laptop loses nothing, because campaigns, sheets, maps, and fog live in the
-  cloud, not on the GM's machine.
-- Latency and internet-dependency, the old downsides, cost nothing now because
-  every session is remote and already depends on the internet.
-
-## 2. Why it fits the architecture
-
-The backend is a state authority that syncs tiny JSON deltas over Socket.io;
-rendering happens in each browser (docs 01, 03, 05). That makes cloud hosting
-easy:
-
-1. **Single instance is enough** for a table of players, and Render treats a
-   single-instance WebSocket server as first-class. We must **not** autoscale:
-   Render has no WebSocket sticky sessions, and one instance sidesteps that.
-2. **The server already binds correctly:** `backend/src/index.ts` reads `PORT`
-   and calls a bare `listen(PORT)`, which binds all interfaces. No change needed.
-3. **Config is already env-driven:** `DATABASE_URL`, `PORT`, `CORS_ORIGINS`,
-   `ASSET_DIR`, and the frontend `VITE_SERVER_URL` are environment variables, so
-   cloud vs local is config, not a code fork. Local dev keeps working unchanged.
-
-## 3. Topology: one same-origin web service
-
-Serve the built frontend from the backend so the SPA, REST API, and socket all
-live on **one origin**:
+## Architecture
 
 ```
-Browser ->  https://vttrpg.onrender.com
-              |-- GET /            -> frontend/dist (SPA)
-              |-- GET /api/...     -> Express (login, campaigns; see docs/09)
-              |-- WS  /socket.io   -> Socket.io
-Render web service  ->  Render Postgres (same region)
+                 (public entry differs per mode)
+   localhost:4000  |  ngrok/Tailscale URL  |  https://YOUR_DOMAIN (Caddy)
+                    \         |            /
+                     vtt-app (Node 22)  -- serves SPA + API + Socket.io same-origin :4000
+                        |  DATABASE_URL -> postgres-db
+                     postgres-db (postgres:16-alpine)  -- named volume pgdata
 ```
 
-Why single-service over a separate static site + web service:
+Compose services: **postgres-db** and **vtt-app** always run; **caddy** runs
+only under the `edge` profile (DigitalOcean). The app port is published on
+loopback (`127.0.0.1:4000`) so localhost and host-run tunnels reach it, while it
+stays off a droplet's public interface. Named volumes persist across restarts:
+`pgdata`, `uploads` (`/app/uploads`), and `caddy_data`/`caddy_config`.
 
-- **No CORS.** Same origin removes the `CORS_ORIGINS` allow-list entirely.
-- **`VITE_SERVER_URL` can be empty.** The client connects the socket to its own
-  origin; no per-environment backend URL to bake in.
-- **Auth is simpler.** Same origin plus Render's automatic HTTPS makes the
-  docs/09 bearer-token flow trivial.
-- **One thing to deploy, one URL, one bill.**
+## The three modes
 
-## 4. Code and config changes required
+| Mode | Command | Public entry | TLS |
+|------|---------|--------------|-----|
+| Local test | `npm run deploy:local` (`docker compose up -d --build`) | `http://localhost:4000` | none |
+| Self-host + tunnel | `npm run deploy:local`, then a tunnel (below) | the tunnel URL | at the tunnel edge |
+| DigitalOcean | `npm run deploy:cloud` (`docker compose --profile edge up -d --build`) | `https://YOUR_DOMAIN` | Let's Encrypt via Caddy |
 
-All small and env-gated, so local `npm run dev` is unaffected:
+`npm run deploy:down` stops the stack (add `-v` to also wipe the volumes).
 
-1. **Postgres SSL (`backend/src/db.ts`).** The pool is currently
-   `new Pool({ connectionString: DATABASE_URL })` with no `ssl`. Use Render's
-   same-region **internal** database URL (no SSL needed) for the running
-   service, and add `ssl: { rejectUnauthorized: false }` behind an env flag for
-   external connections (needed when running schema/seed from a laptop).
-2. **Serve the SPA (`backend/src/index.ts`).** Add
-   `express.static('frontend/dist')` plus an SPA catch-all fallback to
-   `index.html`, alongside the existing `/health` and `/assets`.
-3. **Same-origin socket (`frontend/src/socket.ts`).** When `VITE_SERVER_URL` is
-   unset, connect to the current origin (`io()` with no URL) instead of the
-   `http://localhost:4000` fallback.
-4. **Deploy artifacts.** Add `render.yaml` (one web service + one Postgres, env
-   wired from the DB resource), a `.node-version` to pin Node exactly (the repo
-   only pins `>=20`), and the `db:reset` script noted in docs/09. Build command
-   is the existing root `npm run build`; start is `npm run start -w backend`.
+## Config files (at repo root)
 
-**These four deltas are now implemented behind env flags** (local `npm run dev`
-is unchanged); section 6 shows how to build and run them locally. The remaining
-Render plumbing (provisioning the service and DB, first-deploy env wiring) is
-roughly half a day. The larger dependency is building the docs/09 login
-(section 9), which blocks going public.
+`Dockerfile` (multi-stage, Node 22 Alpine, non-root), `.dockerignore` (excludes
+`.env` so the same-origin build is preserved and no dev secrets leak),
+`docker-compose.yml` (the three services, `caddy` gated behind `profiles:
+["edge"]`, app published as `${APP_BIND:-127.0.0.1}:4000:4000`), and `Caddyfile`
+(`reverse_proxy vtt-app:4000` under `{$SITE_ADDRESS}`; Caddy handles the
+WebSocket upgrade automatically). Environment lives in the root `.env` (compose
+reads it); see `.env.example`. Key vars: `POSTGRES_PASSWORD` (required),
+`POSTGRES_USER`/`POSTGRES_DB` (default `vtt`), `SITE_ADDRESS` (only used by the
+`edge`/Caddy mode; `:80` locally, your domain in prod), and `APP_BIND` (set
+`0.0.0.0` for direct LAN play). The database auto-applies `schema.sql` and
+`seed.sql` on first init via `docker-entrypoint-initdb.d`.
 
-## 5. Database on Render
-
-- Provision a Render Postgres, then run schema + seed once. The existing scripts
-  already take a URL (`db:init` / `db:seed` run `psql "$DATABASE_URL" -f ...`),
-  so pointing `DATABASE_URL` at the Render database (external URL with
-  `sslmode=require` from a laptop) sets it up.
-- Add the missing `db:reset` (drop schema, re-run setup); pre-release we reset
-  rather than migrate (docs/09 §8).
-- Free Postgres is 1 GB, ample for JSONB sheets, fog arrays, and tokens. Expiry
-  is the catch (section 7).
-- Continuity is now a first-class property: the database is the single home for
-  all game data, and a paid instance carries automatic point-in-time recovery
-  backups. Nothing lives only on the GM's laptop.
-
-## 6. Local build and test parity
-
-Before deploying, run the exact production setup on your machine. The env-gated
-deltas from section 4 make the backend serve the built SPA same-origin, just
-like Render.
+## Run and test locally (Docker Desktop)
 
 ```bash
-npm run serve        # build (shared + backend + frontend/dist) then serve on :4000
-# or, iterating:
-npm run build && npm start
+cp .env.example .env             # set POSTGRES_PASSWORD
+npm run deploy:local             # build image + start postgres-db + vtt-app
+curl http://localhost:4000/health   # {"ok":true,"db":true}
 ```
+Open http://localhost:4000 and drive the seeded demo (GM/Player toggle,
+reveal/conceal fog, drag a token). Data and uploads persist across
+`deploy:down` / `deploy:local`; `docker compose down -v` wipes them. On the very
+first boot Postgres runs its init scripts on a temporary socket, so the app may
+log a couple of DB errors for a second before it connects; it self-heals.
 
-Open `http://localhost:4000` (single origin): the SPA, REST, and WebSocket are
-all on one port with no CORS, exactly the Render layout. `npm run dev` (Vite
-:5173 + backend :4000) is unchanged, because SPA serving is gated behind
-`SERVE_CLIENT` (set only by `npm start` / `npm run serve` and on Render).
+## Self-host + tunnel (let remote players in without a server)
 
-Environment flags:
-- `SERVE_CLIENT=1` - backend serves `frontend/dist` with an SPA fallback.
-- `VITE_SERVER_URL` empty - the built client uses its own origin for the socket.
-- `DATABASE_SSL=1` - only for a managed cloud DB that requires SSL; unset for
-  local Postgres.
+Keep the local stack running (`npm run deploy:local`), then expose port 4000
+from your machine with a tunnel. Because the app is same-origin, players just
+open the tunnel URL; nothing is rebuilt.
 
-`npm run db:reset` drops and rebuilds the schema + seed (pre-release we reset,
-never migrate). Verified locally: `/health` returns `{"ok":true,"db":true}`, the
-SPA is served at `/`, deep links fall back to `index.html`, `/socket.io`
-handshakes on the same origin, and unknown `/api/*` routes 404 (not masked by
-the SPA fallback).
+**ngrok** (public, no player install):
+```bash
+ngrok http 4000
+```
+Share the `https://…ngrok-free.app` URL. The free tier shows a one-time
+click-through interstitial (harmless; the top-level page load clears it before
+the socket opens) and issues a new URL each run.
 
-Local-test then deploy: run `npm run serve`, click through, then push. Render
-runs the same `npm run build` / `npm run start -w backend` from `render.yaml`.
+**Tailscale Funnel** (public, no player install, stable URL, no interstitial):
+enable HTTPS + Funnel for your tailnet in the admin console, then expose the
+port (check `tailscale funnel --help` for your version's exact syntax, which has
+changed across releases):
+```bash
+tailscale funnel 4000
+```
+Players open your stable `https://<machine>.<tailnet>.ts.net` URL.
 
-## 7. Cost and on/off
+**Tailscale Serve** (private, most secure): players install Tailscale and you
+invite them to your tailnet; `tailscale serve 4000` exposes it inside the
+tailnet only (valid `*.ts.net` cert, no public exposure). Best for a fixed group.
 
-Cloud is the model, but you still want it cheap and effectively "off" between
-sessions. Current numbers:
+Caddy is not used in these modes; the tunnel terminates TLS and provides the
+hostname. Tunnels support WebSockets, so Socket.io works unchanged.
 
-| Option | Monthly cost | Behavior | Catch |
-|--------|--------------|----------|-------|
-| **A. All free** | $0 | Free web service sleeps after 15 min idle and cold-starts (~1 min) on the next visit, an automatic on/off. 750 instance-hours/month/workspace. | Free Postgres is **deleted ~30 days** after creation (14-day grace). Fine to validate the deploy, not for durable campaigns. |
-| **B. Free web + paid Postgres** (recommended) | ~$6-7/mo | Web still auto-sleeps ($0 idle compute); wake with a visit before game night. | ~1 min cold start on the night's first connection. DB persists, with backups. |
-| **C. Paid web + paid Postgres** | ~$13-14/mo always-on | No cold starts; suspend/resume the web service in the dashboard for deliberate on/off. Persistent disk available for map uploads. | Costs the most; DB keeps billing while the web service is suspended. |
+## Deploy to a DigitalOcean droplet (Ubuntu)
 
-Notes:
-- Cold starts only bite the first connection of the evening; constant in-game
-  traffic keeps a free service awake mid-session.
-- Recommended path: deploy on **A** to validate end to end, then move the
-  database to **B** as soon as there is campaign data worth keeping.
+Copy-paste guide; replace `YOUR_DOMAIN` and the Postgres password.
 
-## 8. Gotchas
+1. **Droplet:** Ubuntu 22.04/24.04, 2 GB+ RAM (the Vite build needs headroom; on
+   1 GB add a swap file). Note the public IP.
+2. **DNS:** point `YOUR_DOMAIN` (a custom domain or a free `duckdns.org`
+   subdomain) at the droplet IP with an `A` record. Caddy needs a resolvable
+   hostname to get a Let's Encrypt certificate.
+3. **SSH in:** `ssh root@DROPLET_IP`.
+4. **Install Docker:** `curl -fsSL https://get.docker.com | sh` then
+   `docker compose version` to confirm the compose plugin.
+5. **Firewall (if ufw):** `ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable`.
+6. **Get the code:** `git clone <your-repo-url> /opt/vtt && cd /opt/vtt`.
+7. **Env:** `cp .env.example .env`; set a strong `POSTGRES_PASSWORD` and
+   `SITE_ADDRESS=YOUR_DOMAIN` (a bare hostname).
+8. **Launch:** `npm run deploy:cloud` (or `docker compose --profile edge up -d
+   --build`). First run builds the image, initializes the DB, and Caddy fetches
+   the certificate automatically once DNS resolves.
+9. **Verify:** open `https://YOUR_DOMAIN` (valid cert) and
+   `https://YOUR_DOMAIN/health` returns `{"ok":true,"db":true}`; two browsers
+   sync in real time.
 
-- **Free Postgres expires every ~30 days.** Removed by Option B.
-- **Ephemeral filesystem.** `ASSET_DIR=./uploads` does not survive a redeploy or
-  restart, and the free tier has no persistent disks. Committed seed assets are
-  fine (they ship in the build), but the roadmap's **map-image upload** feature
-  (docs/07 §1) needs a persistent disk (paid, $0.25/GB/mo, pins one
-  instance/region) or external object storage. Design uploads accordingly.
-- **Single instance only.** No WebSocket sticky sessions on Render, so do not
-  autoscale. If we ever must scale, force the websocket transport (drop HTTP
-  long-polling) and add a shared Socket.io adapter.
+### Operations
 
-## 9. Hard dependency: login must ship first
+- **Logs:** `docker compose logs -f vtt-app` (or `caddy`, `postgres-db`).
+- **Update:** `cd /opt/vtt && git pull && npm run deploy:cloud`.
+- **Backups (cron):** Postgres is self-managed here, so dumps are your job:
+  ```bash
+  0 3 * * * cd /opt/vtt && docker compose exec -T postgres-db pg_dump -U vtt vtt > /opt/vtt-backups/vtt-$(date +\%F).sql
+  ```
+  If backups become a burden, a DigitalOcean Managed Database (automated backups,
+  ~$15/mo) is a drop-in: drop the `postgres-db` service, point `DATABASE_URL` at
+  the managed connection string, and set `DATABASE_SSL=1`.
 
-A public URL that is up whenever you play turns the current "any client can
-claim any `userId`" hole (docs/09 §1) into a standing invitation to impersonate
-the GM. So **the docs/09 login is a precondition for going public**, not an
-optional follow-up. Render serves HTTPS automatically, which also means the
-plain-HTTP transport concern that shaped some of docs/09 no longer applies in
-production (bearer tokens remain the recommendation regardless).
+## Notes and gotchas
 
-## 10. Order of operations
+- **Seeding.** The compose file auto-loads `seed.sql` so the first launch has the
+  demo fixture to smoke-test. For a clean production DB, delete the `seed.sql`
+  line from `postgres-db` volumes and `docker compose down -v` before first real
+  launch. Moot once in-app content creation (docs/09, docs/07) ships.
+- **Password changes after first init** do not take effect on the existing
+  `pgdata` volume; `docker compose down -v` (destroys data) or change it in-DB.
+- **Login before public exposure.** Auth (docs/09) is not built yet; until it is,
+  anyone with the URL has full access. Keep any tunnel/droplet within a trusted
+  group.
+- **Scaling.** Single app instance, so no sticky-session config is needed. If you
+  ever scale out, force the websocket transport and add a shared Socket.io
+  adapter (Redis).
 
-1. Build the docs/09 login (name + PIN, sessions, socket handshake auth). Blocker.
-2. (Done) Local prod parity + Render artifacts: same-origin static serve, pg SSL
-   env-gate, same-origin socket, `render.yaml`, `.node-version`, `db:reset`
-   (section 6).
-3. Deploy on the all-free tier (Option A); provision + seed the DB; confirm a
-   real login round-trips and the socket connects over TLS.
-4. Move the database to Option B once there is campaign data worth keeping.
-5. Revisit persistent storage when map-image upload is built.
+## What was verified
 
-Build-order note: docs/09 (login) and docs/08 (per-audience fog) both precede a
-public launch; login is the hard blocker, and the fog work depends on the
-authenticated `campaign_members` this login introduces.
+Locally on Docker Desktop: the image builds; `postgres-db` + `vtt-app` come up
+healthy; `http://localhost:4000/health` returns `db:true`; the same-origin SPA
+loads and its Socket.io handshake delivers `state_sync` in a real browser; a
+browser token drag round-trips over the socket and persists to the containerized
+DB; and with the `edge` profile, HTTP and the WebSocket both ride through Caddy
+on :80. The tunnel URLs and the Let's Encrypt certificate on a real domain are
+verified by you when you run those modes (the same-origin path they depend on is
+proven).
