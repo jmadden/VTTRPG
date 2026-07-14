@@ -1,6 +1,7 @@
 // Local-host backend entrypoint: Express (assets + health) + Socket.io.
 import './env.js'; // MUST be first: loads .env before db.ts builds the pool.
 import { createServer } from 'node:http';
+import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
@@ -12,6 +13,7 @@ import { registerSocketHandlers, type SocketData } from './socket/index.js';
 
 const PORT = Number(process.env.PORT ?? 4000);
 const ASSET_DIR = process.env.ASSET_DIR ?? './uploads';
+mkdirSync(ASSET_DIR, { recursive: true }); // ensure the upload/serve dir exists
 const CORS_ORIGINS = (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
   .split(',')
   .map((s) => s.trim());

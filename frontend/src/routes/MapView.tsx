@@ -3,7 +3,7 @@ import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { EV, type TokenMoveBroadcast } from '@vtt/shared';
 import { PixiStage } from '../game/PixiStage';
 import { socket } from '../socket';
-import { api, clearToken } from '../api';
+import { assetUrl, clearToken } from '../api';
 import {
   addToken,
   applyConceal,
@@ -135,7 +135,12 @@ export function MapView() {
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage || !ready || stage.isDragging) return;
-    stage.drawMapPlaceholder(state.gridDims.cols, state.gridDims.rows, state.grid);
+    void stage.drawMap(
+      state.gridDims.cols,
+      state.gridDims.rows,
+      state.grid,
+      state.assetPath ? assetUrl(state.assetPath) : null,
+    );
     stage.syncTokens(state.tokens.values(), state.grid, state.movable, state.isGM);
     stage.redrawShroud(
       state.revealed,

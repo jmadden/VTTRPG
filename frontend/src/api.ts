@@ -5,10 +5,16 @@ import type {
   AuthUser,
   CampaignDetail,
   CampaignSummary,
+  MapSummary,
 } from '@vtt/shared';
 
 const BASE =
   import.meta.env.VITE_SERVER_URL || (import.meta.env.DEV ? 'http://localhost:4000' : '');
+
+/** Resolve a server asset path (e.g. "/assets/x.png") to a loadable URL. */
+export function assetUrl(path: string): string {
+  return BASE + path;
+}
 
 const TOKEN_KEY = 'vtt.token';
 
@@ -80,4 +86,41 @@ export const api = {
       body: JSON.stringify({ joinCode }),
     }),
   getCampaign: (id: string) => req<CampaignDetail>(`/api/campaigns/${id}`),
+  listMaps: (campaignId: string) => req<MapSummary[]>(`/api/campaigns/${campaignId}/maps`),
+  setActiveMap: (campaignId: string, mapId: string) =>
+    req<void>(`/api/campaigns/${campaignId}/active-map`, {
+      method: 'POST',
+      body: JSON.stringify({ mapId }),
+    }),
+  // Multipart upload: separate from req() (which forces JSON). No content-type
+  // header, so the browser sets the multipart boundary.
+  async uploadMap(
+    campaignId: string,
+    file: File,
+    meta: { name: string; gridSize: number; cols: number; rows: number },
+  ): Promise<MapSummary> {
+    const fd = new FormData();
+    fd.append('image', file);
+    fd.append('name', meta.name);
+    fd.append('gridSize', String(meta.gridSize));
+    fd.append('cols', String(meta.cols));
+    fd.append('rows', String(meta.rows));
+    const token = getToken();
+    const res = await fetch(BASE + `/api/campaigns/${campaignId}/maps`, {
+      method: 'POST',
+      headers: token ? { authorization: `Bearer ${token}` } : {},
+      body: fd,
+    });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try {
+        const b = (await res.json()) as { error?: string };
+        if (b.error) msg = b.error;
+      } catch {
+        /* non-JSON */
+      }
+      throw new ApiError(res.status, msg);
+    }
+    return (await res.json()) as MapSummary;
+  },
 };

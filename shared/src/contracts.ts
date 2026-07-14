@@ -111,6 +111,7 @@ export interface StateSyncPayload {
   mapId: string;
   gridType: 'square' | 'hex';
   gridSize: number;
+  assetPath: string | null; // map image URL rendered under the grid; null = placeholder grid
   cols: number;
   rows: number;
   revealed: CellKey[];

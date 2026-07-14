@@ -1,6 +1,9 @@
-// REST API (/api): auth + campaign lobby. See docs/09 section 5.
+// REST API (/api): auth + campaign lobby + map library. See docs/09, docs/11.
+import { randomUUID } from 'node:crypto';
+import { extname } from 'node:path';
 import { Router } from 'express';
 import type { Request, RequestHandler, Response } from 'express';
+import multer from 'multer';
 import type { AuthResponse } from '@vtt/shared';
 import {
   bearerToken,
@@ -24,6 +27,29 @@ const ah =
     fn(req, res).catch(next);
 
 export const apiRouter = Router();
+
+// Map image upload -> ASSET_DIR (served by /assets). Unique filenames so Pixi's
+// URL-keyed Assets cache never collides. Images only, 20 MB cap.
+const ASSET_DIR = process.env.ASSET_DIR ?? './uploads';
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: ASSET_DIR,
+    filename: (_req, file, cb) => cb(null, `${randomUUID()}${extname(file.originalname).toLowerCase()}`),
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => cb(null, /^image\//.test(file.mimetype)),
+});
+
+/** Require the caller to be the GM of the campaign in :id (runs before upload). */
+const requireCampaignGm: RequestHandler = (req, res, next) => {
+  void repo
+    .isCampaignGm(req.params.id!, req.userId!)
+    .then((ok) => {
+      if (ok) next();
+      else res.status(403).json({ error: 'not_gm' });
+    })
+    .catch(next);
+};
 
 // POST /api/register -> 201 { token, user }. Auto-login. 409 on name collision.
 apiRouter.post(
@@ -162,5 +188,71 @@ apiRouter.get(
       return;
     }
     res.json(detail);
+  }),
+);
+
+// ── maps / library (Phase 1a) ──────────────────────────────────────────────
+
+// GET /api/campaigns/:id/maps -> library list (members).
+apiRouter.get(
+  '/campaigns/:id/maps',
+  requireAuth,
+  ah(async (req, res) => {
+    const id = req.params.id!;
+    if (!(await repo.isCampaignMember(id, req.userId!))) {
+      res.status(403).json({ error: 'not_member' });
+      return;
+    }
+    res.json(await repo.listMapsForCampaign(id));
+  }),
+);
+
+// POST /api/campaigns/:id/maps -> upload an image and create a map (GM only).
+apiRouter.post(
+  '/campaigns/:id/maps',
+  requireAuth,
+  requireCampaignGm,
+  upload.single('image'),
+  ah(async (req, res) => {
+    const id = req.params.id!;
+    if (!req.file) {
+      res.status(400).json({ error: 'no_image' });
+      return;
+    }
+    const name =
+      typeof req.body.name === 'string' && req.body.name.trim() ? req.body.name.trim() : 'Map';
+    const gridSize = Math.round(Number(req.body.gridSize)) || 70;
+    const cols = Math.max(1, Math.round(Number(req.body.cols)) || 1);
+    const rows = Math.max(1, Math.round(Number(req.body.rows)) || 1);
+    const map = await repo.createMap(id, {
+      name,
+      assetPath: `/assets/${req.file.filename}`,
+      gridType: 'square',
+      gridSize,
+      cols,
+      rows,
+    });
+    res.status(201).json(map);
+  }),
+);
+
+// POST /api/campaigns/:id/active-map -> set the campaign's active map (GM only).
+apiRouter.post(
+  '/campaigns/:id/active-map',
+  requireAuth,
+  requireCampaignGm,
+  ah(async (req, res) => {
+    const id = req.params.id!;
+    const mapId = req.body?.mapId;
+    if (typeof mapId !== 'string') {
+      res.status(400).json({ error: 'invalid' });
+      return;
+    }
+    const ok = await repo.setActiveMap(id, mapId);
+    if (!ok) {
+      res.status(404).json({ error: 'map_not_found' });
+      return;
+    }
+    res.status(204).end();
   }),
 );

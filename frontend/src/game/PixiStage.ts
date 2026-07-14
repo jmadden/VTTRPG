@@ -13,9 +13,11 @@
 
 import {
   Application,
+  Assets,
   Circle,
   Container,
   Graphics,
+  Sprite,
   Text,
   type ColorSource,
   type FederatedPointerEvent,
@@ -52,6 +54,7 @@ export class PixiStage {
   private shroud = new Graphics();
 
   private grid: Grid = { type: 'square', size: 70 };
+  private mapDrawSeq = 0; // guards async image loads against a newer drawMap call
   private handlers: StageHandlers = { onCellAction: () => {}, onTokenDrop: () => {} };
   private dragging: { id: string; container: Container } | null = null;
 
@@ -92,27 +95,48 @@ export class PixiStage {
     return this.dragging !== null;
   }
 
-  /** Draw a faint grid so the empty scene reads as a battlemap. */
-  drawMapPlaceholder(cols: number, rows: number, grid: Grid): void {
+  /** Draw the map: the real image (if any) under a faint grid. Async because
+   *  the image loads via Assets; the grid appears immediately, the sprite when
+   *  the texture resolves. Safe to call every redraw (Assets caches by URL). */
+  async drawMap(
+    cols: number,
+    rows: number,
+    grid: Grid,
+    imageUrl: string | null,
+  ): Promise<void> {
     this.grid = grid;
+    const seq = ++this.mapDrawSeq;
     this.mapLayer.removeChildren().forEach((c) => c.destroy());
-    const g = new Graphics();
 
+    const w = grid.type === 'square' ? cols * grid.size : cols * grid.size * 2;
+    const h = grid.type === 'square' ? rows * grid.size : rows * grid.size * 2;
+
+    const g = new Graphics();
     if (grid.type === 'square') {
       const s = grid.size;
-      const w = cols * s;
-      const h = rows * s;
       for (let c = 0; c <= cols; c++) g.moveTo(c * s, 0).lineTo(c * s, h);
       for (let r = 0; r <= rows; r++) g.moveTo(0, r * s).lineTo(w, r * s);
       g.stroke({ color: GRID_LINE, width: 1 });
     } else {
-      const w = cols * grid.size * 2;
-      const h = rows * grid.size * 2;
       g.rect(0, 0, w, h).fill({ color: 0x14141f });
     }
-
     g.eventMode = 'none'; // never intercept pointer events over the grid
     this.mapLayer.addChild(g);
+
+    if (imageUrl) {
+      try {
+        const texture = await Assets.load(imageUrl);
+        // Discard if a newer drawMap ran or the stage was destroyed meanwhile.
+        if (seq !== this.mapDrawSeq || !this.app) return;
+        const sprite = new Sprite(texture);
+        sprite.width = w;
+        sprite.height = h;
+        sprite.eventMode = 'none';
+        this.mapLayer.addChildAt(sprite, 0); // under the grid lines
+      } catch {
+        // Leave the placeholder grid if the image fails to load.
+      }
+    }
   }
 
   /** Rebuild the token layer. `movable` + `isGM` decide which tokens can drag. */

@@ -2,7 +2,7 @@
 // integration specs. Unit specs ignore it (no network).
 import { spawn, type ChildProcess } from 'node:child_process';
 import { resetTestDb } from './db';
-import { BACKEND_PORT, BACKEND_URL, TEST_DATABASE_URL } from './config';
+import { BACKEND_PORT, BACKEND_URL, TEST_ASSET_DIR, TEST_DATABASE_URL } from './config';
 
 async function waitForHealth(url: string, ms = 20000): Promise<void> {
   const deadline = Date.now() + ms;
@@ -26,6 +26,7 @@ export default async function setup(): Promise<() => Promise<void>> {
       DATABASE_URL: TEST_DATABASE_URL,
       PORT: String(BACKEND_PORT),
       CORS_ORIGINS: 'http://localhost:5173',
+      ASSET_DIR: TEST_ASSET_DIR,
     },
     stdio: 'inherit',
   });

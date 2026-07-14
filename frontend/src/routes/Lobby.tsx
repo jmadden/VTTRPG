@@ -50,6 +50,10 @@ export function Lobby() {
     void navigate({ to: '/campaign/$campaignId', params: { campaignId: c.id } });
   }
 
+  function manage(c: CampaignSummary) {
+    void navigate({ to: '/campaign/$campaignId/manage', params: { campaignId: c.id } });
+  }
+
   async function logout() {
     try {
       await api.logout();
@@ -111,7 +115,18 @@ export function Lobby() {
                   GM {c.gmName} · {c.memberCount} member{c.memberCount === 1 ? '' : 's'}
                 </div>
               </div>
-              {c.isMember ? (
+              {c.isGm ? (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button style={ghostBtn} onClick={() => manage(c)}>
+                    Manage
+                  </button>
+                  {c.activeMapId && (
+                    <button style={primaryBtn} onClick={() => enter(c)}>
+                      Enter
+                    </button>
+                  )}
+                </div>
+              ) : c.isMember ? (
                 c.activeMapId ? (
                   <button style={primaryBtn} onClick={() => enter(c)}>
                     Enter

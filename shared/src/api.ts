@@ -49,6 +49,17 @@ export interface CampaignDetail {
   members: CampaignMemberDto[];
 }
 
+/** A map in a campaign's library. */
+export interface MapSummary {
+  id: string;
+  name: string;
+  assetPath: string | null;
+  gridType: 'square' | 'hex';
+  gridSize: number;
+  cols: number;
+  rows: number;
+}
+
 /** Create-campaign request. `joinCode` is optional (nullable gate). */
 export interface CreateCampaignRequest {
   name: string;

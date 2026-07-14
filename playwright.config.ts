@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test';
-import { TEST_DATABASE_URL } from './test/config';
+import { TEST_ASSET_DIR, TEST_DATABASE_URL } from './test/config';
 
 // E2E runs the real dev servers: backend :4000 + Vite :5173 (the frontend uses
 // its dev fallback to :4000). Requires those ports free, so stop any running
@@ -14,7 +14,12 @@ export default defineConfig({
   webServer: [
     {
       command: 'node_modules/.bin/tsx backend/src/index.ts',
-      env: { DATABASE_URL: TEST_DATABASE_URL, PORT: '4000', CORS_ORIGINS: 'http://localhost:5173' },
+      env: {
+        DATABASE_URL: TEST_DATABASE_URL,
+        PORT: '4000',
+        CORS_ORIGINS: 'http://localhost:5173',
+        ASSET_DIR: TEST_ASSET_DIR,
+      },
       url: 'http://localhost:4000/health',
       reuseExistingServer: false,
       timeout: 30000,

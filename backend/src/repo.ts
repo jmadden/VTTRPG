@@ -6,6 +6,7 @@ import type {
   CampaignSummary,
   CellKey,
   Grid,
+  MapSummary,
   Token,
   TokenType,
 } from '@vtt/shared';
@@ -15,6 +16,7 @@ export interface MapState {
   grid: Grid;
   gridType: 'square' | 'hex';
   gridSize: number;
+  assetPath: string;
   cols: number;
   rows: number;
   revealed: CellKey[];
@@ -23,6 +25,7 @@ export interface MapState {
 interface MapRow {
   grid_type: 'square' | 'hex';
   grid_size: number;
+  asset_path: string;
   cols: number;
   rows: number;
   revealed_tiles: CellKey[];
@@ -222,9 +225,18 @@ export async function isCampaignMember(campaignId: string, userId: string): Prom
   return res.rows.length > 0;
 }
 
+/** Is this user the GM of this campaign? (campaign-keyed authz for map routes) */
+export async function isCampaignGm(campaignId: string, userId: string): Promise<boolean> {
+  const res = await query(
+    'SELECT 1 FROM campaigns WHERE id = $1 AND gm_user_id = $2',
+    [campaignId, userId],
+  );
+  return res.rows.length > 0;
+}
+
 export async function getMapState(mapId: string): Promise<MapState | null> {
   const res = await query<MapRow>(
-    `SELECT grid_type, grid_size, cols, rows, revealed_tiles
+    `SELECT grid_type, grid_size, asset_path, cols, rows, revealed_tiles
        FROM game_maps WHERE id = $1`,
     [mapId],
   );
@@ -235,10 +247,67 @@ export async function getMapState(mapId: string): Promise<MapState | null> {
     grid: { type: row.grid_type, size: row.grid_size },
     gridType: row.grid_type,
     gridSize: row.grid_size,
+    assetPath: row.asset_path,
     cols: row.cols,
     rows: row.rows,
     revealed: row.revealed_tiles,
   };
+}
+
+// ── map library (Phase 1a) ────────────────────────────────────────────────
+
+export async function createMap(
+  campaignId: string,
+  m: {
+    name: string;
+    assetPath: string;
+    gridType: 'square' | 'hex';
+    gridSize: number;
+    cols: number;
+    rows: number;
+  },
+): Promise<MapSummary> {
+  const res = await query<{ id: string }>(
+    `INSERT INTO game_maps (campaign_id, name, asset_path, grid_type, grid_size, cols, rows)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [campaignId, m.name, m.assetPath, m.gridType, m.gridSize, m.cols, m.rows],
+  );
+  return { id: res.rows[0]!.id, ...m };
+}
+
+export async function listMapsForCampaign(campaignId: string): Promise<MapSummary[]> {
+  const res = await query<{
+    id: string;
+    name: string;
+    asset_path: string;
+    grid_type: 'square' | 'hex';
+    grid_size: number;
+    cols: number;
+    rows: number;
+  }>(
+    `SELECT id, name, asset_path, grid_type, grid_size, cols, rows
+       FROM game_maps WHERE campaign_id = $1 ORDER BY created_at`,
+    [campaignId],
+  );
+  return res.rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    assetPath: r.asset_path,
+    gridType: r.grid_type,
+    gridSize: r.grid_size,
+    cols: r.cols,
+    rows: r.rows,
+  }));
+}
+
+/** Set the campaign's active map; only if the map belongs to that campaign. */
+export async function setActiveMap(campaignId: string, mapId: string): Promise<boolean> {
+  const res = await query(
+    `UPDATE campaigns SET active_map_id = $2
+      WHERE id = $1 AND EXISTS (SELECT 1 FROM game_maps WHERE id = $2 AND campaign_id = $1)`,
+    [campaignId, mapId],
+  );
+  return (res.rowCount ?? 0) > 0;
 }
 
 export async function getTokens(mapId: string): Promise<Token[]> {

@@ -109,6 +109,7 @@ export function registerSocketHandlers(io: VttServer): void {
           mapId,
           gridType: state.gridType,
           gridSize: state.gridSize,
+          assetPath: state.assetPath,
           cols: state.cols,
           rows: state.rows,
           revealed: state.revealed,

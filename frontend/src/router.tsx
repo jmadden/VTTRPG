@@ -8,6 +8,7 @@ import {
 import { MapView } from './routes/MapView';
 import { Login } from './routes/Login';
 import { Lobby } from './routes/Lobby';
+import { MapsManager } from './routes/MapsManager';
 import { api } from './api';
 import { state } from './store';
 
@@ -58,10 +59,23 @@ const campaignRoute = createRoute({
   component: MapView,
 });
 
+// GM-only map management (reachable even with no active map).
+const manageRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: '/campaign/$campaignId/manage',
+  loader: async ({ params }) => {
+    const campaign = await api.getCampaign(params.campaignId);
+    if (campaign.gmUserId !== state.session?.user.id) throw redirect({ to: '/lobby' });
+    const maps = await api.listMaps(params.campaignId);
+    return { campaign, maps };
+  },
+  component: MapsManager,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   indexRoute,
-  authedRoute.addChildren([lobbyRoute, campaignRoute]),
+  authedRoute.addChildren([lobbyRoute, campaignRoute, manageRoute]),
 ]);
 
 export const router = createRouter({ routeTree });

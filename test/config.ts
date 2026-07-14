@@ -6,3 +6,8 @@ export const TEST_DATABASE_URL =
 // Vitest integration spawns the backend here (isolated from the :4000 app).
 export const BACKEND_PORT = Number(process.env.TEST_BACKEND_PORT ?? 4100);
 export const BACKEND_URL = `http://localhost:${BACKEND_PORT}`;
+
+// Throwaway upload dir so tests never litter the dev ./uploads.
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+export const TEST_ASSET_DIR = process.env.TEST_ASSET_DIR ?? join(tmpdir(), 'vtt-test-uploads');

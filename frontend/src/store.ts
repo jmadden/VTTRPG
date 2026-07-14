@@ -29,6 +29,8 @@ export const state = {
   isGM: false,
   // Token ids this client may drag (from state_sync).
   movable: new Set<string>(),
+  // Map image URL rendered under the grid (null = placeholder grid only).
+  assetPath: null as string | null,
   // The logged-in user (null when signed out). Drives the route guard.
   session: null as { user: AuthUser } | null,
 };
@@ -82,6 +84,7 @@ export function applyStateSync(p: StateSyncPayload): void {
   state.tokens = new Map(p.tokens.map((t) => [t.id, t]));
   state.movable = new Set(p.movableTokenIds);
   state.isGM = p.role === 'gm';
+  state.assetPath = p.assetPath;
   notify();
 }
 
