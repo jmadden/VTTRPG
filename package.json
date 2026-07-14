@@ -20,13 +20,19 @@
     "deploy:local": "docker compose up -d --build",
     "deploy:cloud": "docker compose --profile edge up -d --build",
     "deploy:down": "docker compose down",
+    "test:db:ensure": "createdb vtt_test 2>/dev/null || true",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test",
+    "test": "npm run build -w shared && npm run test:db:ensure && npm run test:unit && npm run test:e2e",
     "typecheck": "npm run typecheck -w shared && npm run typecheck -w backend && npm run typecheck -w frontend"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "^26.1.1",
     "concurrently": "^9.1.0",
     "playwright": "^1.61.1",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=20"

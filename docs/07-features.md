@@ -87,13 +87,13 @@ roadmap, not an as-built spec: for how shipped features actually work, see docs
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Login / user-select screen (drop hardcoded seeded IDs) | Proposed | **Design settled, see docs/09.** Name + PIN (bcrypt), sessions table, socket handshake auth; `userId` leaves the wire contract; role derived per campaign (creator = GM). |
-| Campaign lobby (create = GM, join = player, enter active map) | Proposed | Login lands on a lobby: create a campaign to GM it, join one to play. New `campaign_members` table; `campaigns.active_map_id`. See docs/09. |
-| Per-campaign join code (harden open join) | Candidate | Any registered user can join any campaign today by design; a 6-char code gates it if a tunnel URL leaks. See docs/09. |
+| Login / user-select screen (drop hardcoded seeded IDs) | Done | **Built, see docs/09.** Name + PIN (bcryptjs), sessions table, socket handshake auth; `userId` left the wire contract; role derived per campaign (creator = GM). |
+| Campaign lobby (create = GM, join = player, enter active map) | Done | Login lands on a lobby: create a campaign to GM it, join one to play. `campaign_members` table; `campaigns.active_map_id`. See docs/09. |
+| Per-campaign join code (harden open join) | Done | `campaigns.join_code` gates join; enforced in `/api/campaigns/:id/join`. Shipped with login given public-tunnel exposure. See docs/09. |
 | Player presence indicator (who is connected) | Candidate | Includes a `member_joined` broadcast so the GM's member list is not stale. See docs/09. |
 | Deployment: Docker (self-host + tunnel) or DigitalOcean | Done (built, verified locally) | **One Docker stack, three run modes. See docs/10.** Self-host + an ngrok/Tailscale tunnel, or a DigitalOcean droplet with Caddy (auto-TLS); app serves SPA + API + sockets same-origin + Dockerized Postgres. Login (above) is still required before exposing publicly. |
 | Pan / zoom camera | Proposed | Input math currently assumes stage coords == CSS pixels; a camera transform means converting through it. |
-| Committed automated test suite | Proposed | Verification used throwaway scripts (docs/06). |
+| Committed automated test suite | Done | Vitest (unit + integration) + Playwright (e2e) on a `vtt_test` DB, via `npm test`. See docs/06. CI wiring is the remaining follow-up. |
 
 ---
 

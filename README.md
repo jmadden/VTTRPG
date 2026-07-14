@@ -220,27 +220,29 @@ Stop with Ctrl-C.
 
 ## 7. Try the demo
 
-Open http://localhost:5173. The HUD (top-left) provides:
+Open http://localhost:5173. You land on a login screen; sign in with a seeded
+account (or register a new one), then the lobby lists your campaigns. Click
+**Enter** on the Demo Campaign to open the map.
 
-- **View as GM / Player** - rejoins as the seeded GM or player user. In Player
-  view any hidden token on an unrevealed cell disappears (the anti-cheat,
-  visible in the UI).
-- **Drag tokens** - grab a token and drop it; it snaps to the cell center and
-  broadcasts the move. The GM can move any token; a player only their own.
+Seeded accounts (from `backend/db/seed.sql`):
+
+| Display name | PIN | Role in Demo Campaign |
+|--------------|-----|-----------------------|
+| `Game Master` | `1234` | GM |
+| `Player One` | `4321` | player |
+
+In the map, the HUD (top-left) provides:
+
+- **Drag tokens** - grab a token and drop it; it snaps to the cell center. The GM
+  can move any token; a player only their own.
 - **Fog tool REVEAL / CONCEAL** (GM only) - click an empty cell to uncover it or
-  to paint fog back over it. Concealing a cell re-hides any hidden token
-  standing on it from players.
+  paint fog back over it. Concealing re-hides any hidden token on that cell from
+  players.
 
-Seeded IDs (from `backend/db/seed.sql`):
-
-| Entity | ID |
-|--------|----|
-| Map | `44444444-4444-4444-4444-444444444444` |
-| GM user | `11111111-1111-1111-1111-111111111111` |
-| Player user | `22222222-2222-2222-2222-222222222222` |
-
-A hidden "Lurking Orc" sits on unrevealed cell `10,5`; players do not receive it
-until the GM reveals that cell.
+Role is **server-derived** from the campaign (creator = GM), not a client toggle.
+The hidden "Lurking Orc" on unrevealed cell `10,5` is visible to the GM but
+stripped from players until the GM reveals that cell (the anti-cheat). The Demo
+Campaign's join code is `DEMO42` (used when a second account joins via the lobby).
 
 ---
 
@@ -261,8 +263,9 @@ Players on the same LAN:
 Players outside the LAN (ngrok): tunnel the frontend (and backend) and add the
 generated `https://…ngrok…` URLs to `CORS_ORIGINS` / `VITE_SERVER_URL`.
 
-Security note: this is a local trust model with no real authentication. Do not
-expose it directly to the public internet beyond a trusted play group.
+Security note: login is display name + PIN (bcrypt) with per-campaign join
+codes, but the PIN space is small (see the threat model in
+`docs/09-login-and-identity.md`). Keep any public tunnel within a trusted group.
 
 ---
 
@@ -270,14 +273,12 @@ expose it directly to the public internet beyond a trusted play group.
 
 ```bash
 npm run typecheck      # tsc across shared, backend, frontend
+createdb vtt_test      # one-time test DB
+npx playwright install chromium   # one-time, for the e2e
+npm test               # Vitest (unit + integration) + Playwright (e2e)
 ```
-
-Optional browser end-to-end checks need the Chromium binary once:
-```bash
-npx playwright install chromium
-```
-See `docs/06-verification.md` for the full verification approach and what the
-end-to-end checks assert.
+`npm test` uses ports :4000 and :5173, so stop any running dev/Docker app first.
+See `docs/06-verification.md` for the full suite layout and what it asserts.
 
 ---
 
@@ -294,6 +295,9 @@ Run from the repo root:
 | `npm run db:init` | Apply `schema.sql` (requires `DATABASE_URL` exported in your shell) |
 | `npm run db:seed` | Apply `seed.sql` demo data (requires `DATABASE_URL` exported) |
 | `npm run db:setup` | Run `db:init` then `db:seed` (requires `DATABASE_URL` exported) |
+| `npm run db:reset` | Drop + recreate schema, then setup (needed after schema changes) |
+| `npm test` | Vitest unit + integration and Playwright e2e (needs `vtt_test`) |
+| `npm run test:unit` / `npm run test:e2e` | Run just the Vitest or just the Playwright suite |
 
 ---
 

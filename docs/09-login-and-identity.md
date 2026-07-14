@@ -1,9 +1,13 @@
 # 09 - Login & Campaign Identity
 
-**Status: design, not yet built.** This doc specifies the login system, session
-model, and how a user's role (GM or player) is derived from the campaign they
-join. It resolves the "Login / user-select screen" item in `docs/07-features.md`.
-Docs 01-06 describe the current as-built system; nothing here is implemented yet.
+**Status: built** (on the `feat/login` branch). This doc specifies the login
+system, session model, and how a user's role (GM or player) is derived from the
+campaign they join. It resolves the "Login / user-select screen" item in
+`docs/07-features.md`. The design below is implemented: auth REST + socket
+handshake, `sessions` + `campaign_members`, per-campaign roles, and a
+per-campaign join code. Coverage is in the committed suite (docs/06). One
+deviation from the text below: PINs are hashed with **bcryptjs** (pure JS) rather
+than native `bcrypt`, to keep the Alpine Docker image toolchain-free.
 
 ## 1. Why
 

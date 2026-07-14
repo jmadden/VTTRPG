@@ -1,10 +1,10 @@
 # 06 - Verification
 
-How the system has been verified so far, and how to reproduce it. Note: the
-end-to-end checks below were run as throwaway scripts during development and are
-**not yet committed as a test suite**. Formalizing them (for example under
-`backend/test` and a Playwright config) is a recommended next step; this doc
-records what was asserted so that coverage is not lost.
+How the system is verified. There is now a **committed suite** run with
+`npm test`: Vitest for unit + integration and `@playwright/test` for browser
+e2e, against a dedicated `vtt_test` database (see the last section). The
+sections below describe what is covered; the earlier throwaway checks have been
+formalized into it.
 
 ## 1. Static typecheck
 
@@ -77,8 +77,28 @@ npm run dev          # in one terminal
   Fixed with `backend/src/env.ts` (imported first) and Vite `envDir: '..'`
   (doc 01).
 
-## Recommended next steps for testing
+## Committed test suite (`npm test`)
 
-- Commit the socket and browser scripts as a real suite with an `npm test`.
-- Add a test database and reset fixtures so runs are isolated from dev data.
-- Add CI to run typecheck + tests on push.
+Tooling: Vitest (unit + integration) and `@playwright/test` (browser e2e), run
+against a dedicated `vtt_test` Postgres reset per run. Layout under `test/`:
+
+- `test/unit/` - coordinate round-trips + the visibility-filter gating table
+  (no DB).
+- `test/integration/` - auth REST (register, login, rate-limit, generic 401,
+  `/me`), join-code enforcement, and the socket handshake + `join_map` (GM sees
+  2 tokens, player 1 with the orc stripped, non-member rejected). Vitest
+  `globalSetup` resets `vtt_test` and starts the backend on :4100; files run
+  serially (`fileParallelism: false`) since they share one DB.
+- `test/e2e/login.spec.ts` - the real browser flow: unauthenticated -> /login,
+  GM login -> lobby -> map (2 tokens), player -> 1 token. Playwright `webServer`
+  starts the backend (:4000) + Vite (:5173); `globalSetup` resets `vtt_test`.
+
+Run:
+```bash
+createdb vtt_test        # one-time (npm run test:db:ensure does this too)
+npx playwright install chromium   # one-time, for the e2e
+npm test                 # build shared, ensure DB, vitest run, playwright test
+# or individually: npm run test:unit  /  npm run test:e2e
+```
+The e2e uses :4000 and :5173, so stop any running dev/Docker app first. Override
+the database with `TEST_DATABASE_URL`. Next step: wire CI to run `npm test` on push.

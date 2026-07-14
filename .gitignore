@@ -204,3 +204,8 @@ $RECYCLE.BIN/
 
 # Local-only working notes (kept on the GM's machine, never committed)
 HANDOFF.md
+
+# Test artifacts
+test-results/
+playwright-report/
+.playwright/

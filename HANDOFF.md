@@ -63,12 +63,12 @@ Implemented and verified:
 - System-agnostic character sheets as JSONB with single-path `jsonb_set` updates.
 
 Not done (likely next work):
-- No login / user selection. The frontend hardcodes the seeded GM and player IDs behind a HUD toggle.
+- Login / identity: DONE (docs/09, `feat/login`). Real accounts + sessions, per-campaign roles, join code; the HUD GM/Player toggle is gone (role is server-derived).
 - No map image upload. The map layer is a placeholder grid; `game_maps.asset_path` is unused by the renderer.
 - `sheet_update` has a contract and server handler but no UI (no character sheet screen).
 - No pan/zoom camera.
-- No committed test suite (verification used throwaway scripts, see doc 06).
-- Not under version control. `git` is not initialized in this repo. Consider `git init` + a `.gitignore` (node_modules, dist, .env) early.
+- Committed test suite: DONE. Vitest (unit + integration) + Playwright (e2e) via `npm test` on a `vtt_test` DB (doc 06). CI wiring is the remaining follow-up.
+- Under version control now; the login feature lives on the `feat/login` branch.
 
 ## Locked decisions (do not relitigate without reason)
 
