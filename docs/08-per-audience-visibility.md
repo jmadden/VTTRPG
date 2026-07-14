@@ -6,6 +6,12 @@ shared, map-level fog set to per-player visibility. It is the resolution of the
 describe the current as-built system; this describes where the fog model is
 going. Nothing here is implemented yet.
 
+**Update:** this feature is now folded into the GM toolkit (`docs/11-gm-toolkit.md`)
+as its **Phase 3**. The breakout-maps idea in section 8 (phase 2) is superseded
+by docs/11's tab-based multi-map model (players load the map their token is on);
+the per-audience fog model below (base + per-user overlay, `map_visibility`) is
+unchanged and carried forward.
+
 ## 1. Why
 
 Today fog is map-level: `game_maps.revealed_tiles` is one set shared by all

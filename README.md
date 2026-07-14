@@ -338,4 +338,5 @@ Run from the repo root:
 - `docs/08-per-audience-visibility.md` - per-player / per-audience fog design (not yet built)
 - `docs/09-login-and-identity.md` - login, sessions, and per-campaign roles design (not yet built)
 - `docs/10-cloud-deployment.md` - deployment: one Docker stack, three modes (local, self-host + tunnel, DigitalOcean); built and verified locally
+- `docs/11-gm-toolkit.md` - GM toolkit design: tab-based multi-map model, tokens, per-audience fog, session tools, builder (phased; not yet built)
 - `shared/src/contracts.ts` - the authoritative payload types

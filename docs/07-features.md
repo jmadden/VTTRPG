@@ -35,8 +35,10 @@ roadmap, not an as-built spec: for how shipped features actually work, see docs
 | Prebuilt shape library (boulders, rooms, doors, corridors, etc.) | Proposed | Reusable stamps/assets the GM drops onto a map while building. Needs an asset catalog + a place/transform tool in the editor. |
 
 **Open questions for this section**
-- Map library: does "display to the table" replace the current map for everyone,
-  or can multiple maps be open at once (tabs)?
+- Map library / multi-map: resolved in `docs/11-gm-toolkit.md` (GM toolkit) - a
+  tab-based live set of maps with per-player placement; players load the map
+  their token is on. The map/token/fog/session/builder items in this section are
+  designed holistically and phased there.
 - Per-audience fog: design settled in docs/08 (shared base + per-user overlays,
   manual regroup, breakout maps phased). Open sub-questions (parties storage,
   conceal precedence) are tracked there.
