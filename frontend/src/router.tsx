@@ -53,8 +53,14 @@ const campaignRoute = createRoute({
   path: '/campaign/$campaignId',
   loader: async ({ params }) => {
     const campaign = await api.getCampaign(params.campaignId);
-    if (!campaign.activeMapId) throw redirect({ to: '/lobby' });
-    return { mapId: campaign.activeMapId, campaign };
+    const isGm = campaign.gmUserId === state.session?.user.id;
+    // GM starts on the first live tab (or no map, if the live set is empty —
+    // MapView renders the tab bar + library drawer with no canvas). A player
+    // starts wherever their own token currently sits ("a player is where
+    // their token is" — docs/11 §2), or null for an in-component waiting
+    // screen if unplaced. No redirect on null in either case (docs/11 §7).
+    const mapId = isGm ? (campaign.liveMaps[0]?.mapId ?? null) : campaign.viewerMapId;
+    return { mapId, campaign };
   },
   component: MapView,
 });

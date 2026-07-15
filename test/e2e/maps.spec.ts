@@ -1,6 +1,8 @@
-// Browser e2e (GM toolkit Phase 1a): a GM creates a campaign, uploads a map via
-// Manage, sets it active, and enters it; the real image is fetched under the grid.
-// Uses its own campaign so it does not disturb the seeded Demo (login.spec).
+// Browser e2e (GM toolkit Phase 1a/1b): a GM creates a campaign, uploads a map
+// via Manage (library), enters the (initially tab-less) campaign, then adds
+// that map as a live tab from the in-game library drawer; the real image is
+// fetched under the grid. Uses its own campaign so it does not disturb the
+// seeded Demo (login.spec).
 import { test, expect, type Page } from '@playwright/test';
 
 // A 1x1 PNG uploaded via setInputFiles (no on-disk fixture needed).
@@ -17,7 +19,7 @@ async function loginGM(page: Page): Promise<void> {
   await page.waitForURL('**/lobby');
 }
 
-test('GM creates a campaign, uploads + activates a map, and enters it', async ({ page }) => {
+test('GM creates a campaign, uploads a map, enters, and adds it as a live tab', async ({ page }) => {
   await loginGM(page);
 
   // Create a fresh campaign (the GM owns it); it becomes the newest card.
@@ -29,23 +31,30 @@ test('GM creates a campaign, uploads + activates a map, and enters it', async ({
   await page.getByRole('button', { name: 'Manage' }).last().click();
   await page.waitForURL('**/manage');
 
-  // Empty library -> upload one map.
+  // Empty library -> upload one map (library CRUD only; no live-tab concept here).
+  const uploaded = page.waitForResponse(
+    (r) => r.url().includes('/maps') && r.request().method() === 'POST',
+  );
   await page
     .locator('input[type=file]')
     .setInputFiles({ name: 'map.png', mimeType: 'image/png', buffer: PNG });
   await page.getByPlaceholder(/Map name/).fill('E2E Map');
   await page.getByRole('button', { name: 'Upload' }).click();
-
+  const { id: mapId } = (await (await uploaded).json()) as { id: string };
   await expect(page.getByText('E2E Map')).toBeVisible();
-  await page.getByRole('button', { name: 'Set active' }).click();
-  await expect(page.getByText('active')).toBeVisible();
 
-  // Enter and confirm the map renders, fetching the uploaded image.
+  // Enter with an empty live set -> the waiting shell, no canvas yet.
+  await page.getByRole('button', { name: 'Enter' }).click();
+  await expect(page.getByText('No live maps yet')).toBeVisible();
+
+  // Add the library map as a live tab from the in-game library drawer.
   const imageFetched = page
     .waitForResponse((r) => r.url().includes('/assets/') && r.status() === 200, { timeout: 8000 })
     .then(() => true)
     .catch(() => false);
-  await page.getByRole('button', { name: 'Enter' }).click();
+  await page.getByRole('button', { name: 'Map Library' }).click();
+  await page.getByTestId(`library-add-${mapId}`).click();
+
   await page.waitForSelector('canvas');
   await expect.poll(() => page.evaluate(() => document.body.innerText)).toContain('VTT · GM');
   expect(await imageFetched).toBe(true);

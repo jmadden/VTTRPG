@@ -6,7 +6,9 @@ import type {
   CampaignSummary,
   CellKey,
   Grid,
+  LiveMapEntry,
   MapSummary,
+  MemberTokenDto,
   Token,
   TokenType,
 } from '@vtt/shared';
@@ -119,9 +121,8 @@ export async function listCampaigns(userId: string): Promise<CampaignSummary[]> 
     member_count: string;
     is_member: boolean;
     is_gm: boolean;
-    active_map_id: string | null;
   }>(
-    `SELECT c.id, c.name, c.active_map_id,
+    `SELECT c.id, c.name,
             gm.display_name AS gm_name,
             (SELECT count(*) FROM campaign_members m WHERE m.campaign_id = c.id) AS member_count,
             EXISTS(SELECT 1 FROM campaign_members m WHERE m.campaign_id = c.id AND m.user_id = $1) AS is_member,
@@ -137,7 +138,6 @@ export async function listCampaigns(userId: string): Promise<CampaignSummary[]> 
     memberCount: Number(r.member_count),
     isMember: r.is_member,
     isGm: r.is_gm,
-    activeMapId: r.active_map_id,
   }));
 }
 
@@ -157,7 +157,8 @@ export async function createCampaign(
      SELECT id FROM c`,
     [name, userId, joinCode],
   );
-  return (await getCampaignDetail(res.rows[0]!.id))!;
+  // Creator is the GM, so they're the viewer for the detail returned here.
+  return (await getCampaignDetail(res.rows[0]!.id, userId))!;
 }
 
 export async function joinCampaign(
@@ -179,15 +180,26 @@ export async function joinCampaign(
   return { ok: true };
 }
 
-export async function getCampaignDetail(campaignId: string): Promise<CampaignDetail | null> {
-  const c = await query<{
-    id: string;
-    name: string;
-    gm_user_id: string;
-    active_map_id: string | null;
-  }>('SELECT id, name, gm_user_id, active_map_id FROM campaigns WHERE id = $1', [campaignId]);
+/**
+ * Full campaign detail, computed per-viewer:
+ * - `liveMaps`: the GM's ordered live tabs.
+ * - `viewerMapId`: the map the viewer's own token currently sits on (v1: one
+ *   PC token per player is the load anchor — docs/11 §2/§10), or null if
+ *   unplaced (or the viewer has no token, e.g. the GM).
+ * - `memberTokens`: GM-only — every member's current token/map, for the
+ *   Players Panel. Empty for non-GM viewers.
+ */
+export async function getCampaignDetail(
+  campaignId: string,
+  viewerUserId: string,
+): Promise<CampaignDetail | null> {
+  const c = await query<{ id: string; name: string; gm_user_id: string }>(
+    'SELECT id, name, gm_user_id FROM campaigns WHERE id = $1',
+    [campaignId],
+  );
   const row = c.rows[0];
   if (!row) return null;
+
   const m = await query<{ id: string; display_name: string; is_gm: boolean }>(
     `SELECT u.id, u.display_name, (u.id = $2) AS is_gm
        FROM campaign_members cm JOIN users u ON u.id = cm.user_id
@@ -195,12 +207,38 @@ export async function getCampaignDetail(campaignId: string): Promise<CampaignDet
       ORDER BY cm.joined_at`,
     [campaignId, row.gm_user_id],
   );
+
+  const liveMaps = await listLiveMaps(campaignId);
+
+  const viewerTok = await query<{ map_id: string }>(
+    `SELECT t.map_id
+       FROM tokens t JOIN character_sheets cs ON cs.id = t.character_sheet_id
+      WHERE cs.campaign_id = $1 AND cs.owner_user_id = $2
+      LIMIT 1`,
+    [campaignId, viewerUserId],
+  );
+  const viewerMapId = viewerTok.rows[0]?.map_id ?? null;
+
+  let memberTokens: MemberTokenDto[] = [];
+  const isGmViewer = viewerUserId === row.gm_user_id;
+  if (isGmViewer) {
+    const mt = await query<{ user_id: string; token_id: string; map_id: string }>(
+      `SELECT cs.owner_user_id AS user_id, t.id AS token_id, t.map_id
+         FROM character_sheets cs JOIN tokens t ON t.character_sheet_id = cs.id
+        WHERE cs.campaign_id = $1`,
+      [campaignId],
+    );
+    memberTokens = mt.rows.map((r) => ({ userId: r.user_id, tokenId: r.token_id, mapId: r.map_id }));
+  }
+
   return {
     id: row.id,
     name: row.name,
     gmUserId: row.gm_user_id,
-    activeMapId: row.active_map_id,
     members: m.rows.map((r) => ({ id: r.id, displayName: r.display_name, isGm: r.is_gm })),
+    liveMaps,
+    viewerMapId,
+    memberTokens,
   };
 }
 
@@ -300,14 +338,75 @@ export async function listMapsForCampaign(campaignId: string): Promise<MapSummar
   }));
 }
 
-/** Set the campaign's active map; only if the map belongs to that campaign. */
-export async function setActiveMap(campaignId: string, mapId: string): Promise<boolean> {
+// ── live map tabs (gm-maps-1b) ────────────────────────────────────────────
+
+export async function listLiveMaps(campaignId: string): Promise<LiveMapEntry[]> {
+  const res = await query<{ map_id: string; title: string; position: number }>(
+    `SELECT map_id, title, position FROM campaign_live_maps
+      WHERE campaign_id = $1 ORDER BY position`,
+    [campaignId],
+  );
+  return res.rows.map((r) => ({ mapId: r.map_id, title: r.title, position: r.position }));
+}
+
+/**
+ * Rewrite campaign_live_maps to exactly match `entries` in one atomic
+ * statement: deletes rows not in the incoming list, upserts the rest, and
+ * silently drops any map_id that doesn't belong to campaignId (join against
+ * game_maps). Caller (the socket handler) normalizes positions/dedupes first.
+ */
+export async function setLiveMaps(
+  campaignId: string,
+  entries: readonly LiveMapEntry[],
+): Promise<LiveMapEntry[]> {
+  const payload = JSON.stringify(
+    entries.map((e) => ({ map_id: e.mapId, title: e.title, position: e.position })),
+  );
+  const res = await query<{ map_id: string; title: string; position: number }>(
+    `WITH valid AS (
+       SELECT e.map_id, e.title, e.position
+         FROM jsonb_to_recordset($2::jsonb) AS e(map_id uuid, title text, position int)
+         JOIN game_maps gm ON gm.id = e.map_id AND gm.campaign_id = $1
+     ),
+     del AS (
+       DELETE FROM campaign_live_maps
+        WHERE campaign_id = $1
+          AND map_id NOT IN (SELECT map_id FROM valid)
+     ),
+     ins AS (
+       INSERT INTO campaign_live_maps (campaign_id, map_id, position, title)
+       SELECT $1, map_id, position, title FROM valid
+       ON CONFLICT (campaign_id, map_id) DO UPDATE
+         SET position = EXCLUDED.position, title = EXCLUDED.title
+     )
+     SELECT map_id, title, position FROM valid ORDER BY position`,
+    [campaignId, payload],
+  );
+  return res.rows.map((r) => ({ mapId: r.map_id, title: r.title, position: r.position }));
+}
+
+/** Is this map one of the campaign's current live tabs? Enforced by token_relocate. */
+export async function isMapLive(campaignId: string, mapId: string): Promise<boolean> {
   const res = await query(
-    `UPDATE campaigns SET active_map_id = $2
-      WHERE id = $1 AND EXISTS (SELECT 1 FROM game_maps WHERE id = $2 AND campaign_id = $1)`,
+    'SELECT 1 FROM campaign_live_maps WHERE campaign_id = $1 AND map_id = $2',
     [campaignId, mapId],
   );
-  return (res.rowCount ?? 0) > 0;
+  return res.rows.length > 0;
+}
+
+/** Cross-map token move: reassigns map_id in addition to x/y (token_relocate). */
+export async function updateTokenMap(
+  tokenId: string,
+  mapId: string,
+  x: number,
+  y: number,
+): Promise<void> {
+  await query('UPDATE tokens SET map_id = $2, x = $3, y = $4 WHERE id = $1', [
+    tokenId,
+    mapId,
+    x,
+    y,
+  ]);
 }
 
 export async function getTokens(mapId: string): Promise<Token[]> {

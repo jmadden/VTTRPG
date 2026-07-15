@@ -37,14 +37,17 @@ export type ClientToken = Omit<Token, 'hidden'>;
 export const EV = {
   // client → server
   TOKEN_MOVE: 'token_move',
+  TOKEN_RELOCATE: 'token_relocate',
   REVEAL_TILES: 'reveal_tiles',
   CONCEAL_TILES: 'conceal_tiles',
   SHEET_UPDATE: 'sheet_update',
   JOIN_MAP: 'join_map',
+  SET_LIVE_MAPS: 'set_live_maps',
   // server → client
   STATE_SYNC: 'state_sync',
   TOKEN_ADD: 'token_add',
   TOKEN_REMOVE: 'token_remove',
+  MAP_RELOCATED: 'map_relocated',
 } as const;
 
 // ── token_move ────────────────────────────────────────────────────────────
@@ -144,14 +147,61 @@ export type JoinMapAck =
   | { ok: true }
   | { ok: false; reason: 'not_found' | 'not_member' | 'unauthorized' };
 
+// ── set_live_maps (GM ONLY) ─────────────────────────────────────────────────
+// One combined event: the client always sends the full ordered live-tab list;
+// the server rewrites campaign_live_maps to match in one atomic statement.
+// Broadcast (and the ack) go to every socket in the GM's own `user:<id>` room,
+// so all of that GM's open tabs/devices stay in sync.
+export interface LiveMapEntry {
+  mapId: string;
+  title: string;
+  position: number;
+}
+
+export interface SetLiveMapsRequest {
+  campaignId: string;
+  liveMaps: { mapId: string; title: string; position: number }[];
+}
+export type SetLiveMapsAck =
+  | { ok: true; liveMaps: LiveMapEntry[] }
+  | { ok: false; reason: 'unauthorized' | 'not_gm' };
+export interface SetLiveMapsBroadcast {
+  campaignId: string;
+  liveMaps: LiveMapEntry[];
+}
+
+// ── token_relocate (GM ONLY) ─────────────────────────────────────────────────
+// Cross-map move of an existing token: distinct from token_move (which stays
+// "move within the map you're joined to"). Fans out to both maps' rooms plus
+// the token owner's `user:<id>` room via map_relocated.
+export interface TokenRelocateRequest {
+  tokenId: string;
+  toMapId: string;
+  x: number;
+  y: number;
+}
+export type TokenRelocateAck =
+  | { ok: true }
+  | { ok: false; reason: 'unauthorized' | 'not_found' | 'not_live' };
+
+// ── map_relocated (server → the relocated player's user room) ───────────────
+// Tells that player's socket to re-run join_map against the new map; the
+// existing wholesale state_sync on join replaces the store, so this is the
+// entire client-side relocation story.
+export interface MapRelocatedPush {
+  mapId: string;
+}
+
 // ── Typed event maps for socket.io generics (build-phase convenience) ────────
 
 export interface ClientToServerEvents {
   [EV.JOIN_MAP]: (p: JoinMapRequest, ack: (res: JoinMapAck) => void) => void;
   [EV.TOKEN_MOVE]: (p: TokenMoveRequest) => void;
+  [EV.TOKEN_RELOCATE]: (p: TokenRelocateRequest, ack: (res: TokenRelocateAck) => void) => void;
   [EV.REVEAL_TILES]: (p: RevealTilesRequest) => void;
   [EV.CONCEAL_TILES]: (p: ConcealTilesRequest) => void;
   [EV.SHEET_UPDATE]: (p: SheetUpdatePayload) => void;
+  [EV.SET_LIVE_MAPS]: (p: SetLiveMapsRequest, ack: (res: SetLiveMapsAck) => void) => void;
 }
 
 export interface ServerToClientEvents {
@@ -162,4 +212,6 @@ export interface ServerToClientEvents {
   [EV.TOKEN_ADD]: (p: TokenAddBroadcast) => void;
   [EV.TOKEN_REMOVE]: (p: TokenRemoveBroadcast) => void;
   [EV.SHEET_UPDATE]: (p: SheetUpdatePayload) => void;
+  [EV.SET_LIVE_MAPS]: (p: SetLiveMapsBroadcast) => void;
+  [EV.MAP_RELOCATED]: (p: MapRelocatedPush) => void;
 }

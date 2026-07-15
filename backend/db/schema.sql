@@ -48,8 +48,9 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 
 -- ── campaigns ───────────────────────────────────────────────────────────────
--- `join_code` (nullable) gates open join over a public URL. `active_map_id` is
--- added after game_maps (forward reference resolved at the bottom of the file).
+-- `join_code` (nullable) gates open join over a public URL. Which maps are
+-- "live" right now lives in campaign_live_maps below, not on this row — see
+-- the gm-maps-1b design note there.
 CREATE TABLE IF NOT EXISTS campaigns (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name       TEXT        NOT NULL,
@@ -110,6 +111,20 @@ CREATE TABLE IF NOT EXISTS game_maps (
 
 CREATE INDEX IF NOT EXISTS idx_maps_campaign ON game_maps(campaign_id);
 
+-- ── campaign_live_maps ────────────────────────────────────────────────────
+-- gm-maps-1b: the GM's ordered set of "live" tabs, a subset of the campaign's
+-- game_maps library. Add/remove/reorder = row changes via one atomic
+-- set_live_maps rewrite (backend/src/repo.ts). Both FKs CASCADE: dropping a
+-- library map or the campaign drops its tab row(s) too.
+CREATE TABLE IF NOT EXISTS campaign_live_maps (
+  campaign_id UUID    NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  map_id      UUID    NOT NULL REFERENCES game_maps(id)  ON DELETE CASCADE,
+  position    INTEGER NOT NULL,
+  title       TEXT    NOT NULL,
+  PRIMARY KEY (campaign_id, map_id)
+);
+CREATE INDEX IF NOT EXISTS idx_live_maps_campaign ON campaign_live_maps(campaign_id, position);
+
 -- ── tokens ────────────────────────────────────────────────────────────────
 -- Position is world pixels (x, y). The server converts (x, y) -> cell key via
 -- the map's grid_type/grid_size to decide visibility. `hidden` monsters on
@@ -127,10 +142,6 @@ CREATE TABLE IF NOT EXISTS tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tokens_map ON tokens(map_id);
-
--- ── campaigns.active_map_id (forward reference to game_maps, resolved here) ──
-ALTER TABLE campaigns
-  ADD COLUMN IF NOT EXISTS active_map_id UUID REFERENCES game_maps(id) ON DELETE SET NULL;
 
 -- ============================================================================
 -- Example: applying a single nested `sheet_update` with jsonb_set.

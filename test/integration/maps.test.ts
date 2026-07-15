@@ -1,5 +1,6 @@
-// Integration: map upload / library list / set-active + authz, and that the
-// active map's assetPath reaches the client in state_sync. (GM toolkit Phase 1a)
+// Integration: map upload / library list + authz, and that a joined map's
+// assetPath reaches the client in state_sync. (GM toolkit Phase 1a; live-tab
+// management itself is covered by live-maps.test.ts / token-relocate.test.ts.)
 import { describe, it, expect } from 'vitest';
 import { io, type Socket } from 'socket.io-client';
 import { BACKEND_URL } from '../config';
@@ -66,7 +67,7 @@ describe('maps (Phase 1a)', () => {
     ).json()) as { id: string }[];
     expect(list.some((m) => m.id === map.id)).toBe(true);
 
-    // Player One is a member but not the GM -> forbidden to upload or set active.
+    // Player One is a member but not the GM -> forbidden to upload.
     const player = await tokenFor('Player One', '4321');
     const pUp = await fetch(`${BACKEND_URL}/api/campaigns/${CAMPAIGN}/maps`, {
       method: 'POST',
@@ -74,15 +75,9 @@ describe('maps (Phase 1a)', () => {
       body: mapForm('Nope'),
     });
     expect(pUp.status).toBe(403);
-    const pSet = await fetch(`${BACKEND_URL}/api/campaigns/${CAMPAIGN}/active-map`, {
-      method: 'POST',
-      headers: { ...authH(player), 'content-type': 'application/json' },
-      body: JSON.stringify({ mapId: map.id }),
-    });
-    expect(pSet.status).toBe(403);
   });
 
-  it('non-members cannot list; GM set-active flows assetPath into state_sync', async () => {
+  it('non-members cannot list; a joined map flows its assetPath into state_sync', async () => {
     const gm = await tokenFor('Game Master', '1234');
     const stranger = await registerToken('MapStranger', '9999');
 
@@ -91,21 +86,15 @@ describe('maps (Phase 1a)', () => {
     });
     expect(sList.status).toBe(403);
 
-    // Upload a fresh map and make it active.
     const up = await fetch(`${BACKEND_URL}/api/campaigns/${CAMPAIGN}/maps`, {
       method: 'POST',
       headers: authH(gm),
       body: mapForm('Tavern'),
     });
     const map = (await up.json()) as { id: string; assetPath: string };
-    const setRes = await fetch(`${BACKEND_URL}/api/campaigns/${CAMPAIGN}/active-map`, {
-      method: 'POST',
-      headers: { ...authH(gm), 'content-type': 'application/json' },
-      body: JSON.stringify({ mapId: map.id }),
-    });
-    expect(setRes.status).toBe(204);
 
-    // Joining that map delivers its assetPath in state_sync.
+    // Joining that map delivers its assetPath in state_sync (it doesn't need
+    // to be a live tab to be joined directly by mapId).
     const s = await connect(gm);
     const state = await new Promise<{ assetPath: string | null }>((res) => {
       s.once('state_sync', res as (p: unknown) => void);

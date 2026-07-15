@@ -2,32 +2,17 @@ import { useState } from 'react';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import type { MapSummary } from '@vtt/shared';
 import { api, ApiError } from '../api';
-import { field, ghostBtn, linkBtn, panel, primaryBtn } from './ui';
+import { uploadMapWithDims } from './mapUpload';
+import { field, linkBtn, panel, primaryBtn } from './ui';
 
 const routeApi = getRouteApi('/authed/campaign/$campaignId/manage');
 
-/** Read an image's pixel dimensions client-side, so the server needs no image lib. */
-function readDims(file: File): Promise<{ w: number; h: number }> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      resolve({ w: img.naturalWidth, h: img.naturalHeight });
-      URL.revokeObjectURL(url);
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('bad_image'));
-    };
-    img.src = url;
-  });
-}
-
+// Pure library CRUD (gm-maps-1b): "active map" is gone — which maps are live
+// is managed from the in-game tab bar/library drawer, not here.
 export function MapsManager() {
   const loader = routeApi.useLoaderData();
   const navigate = useNavigate();
   const [maps, setMaps] = useState<MapSummary[]>(loader.maps);
-  const [activeMapId, setActiveMapId] = useState<string | null>(loader.campaign.activeMapId);
   const [name, setName] = useState('');
   const [gridSize, setGridSize] = useState(70);
   const [file, setFile] = useState<File | null>(null);
@@ -37,9 +22,7 @@ export function MapsManager() {
   const campaignId = loader.campaign.id;
 
   async function refresh() {
-    const [m, c] = await Promise.all([api.listMaps(campaignId), api.getCampaign(campaignId)]);
-    setMaps(m);
-    setActiveMapId(c.activeMapId);
+    setMaps(await api.listMaps(campaignId));
   }
 
   async function upload() {
@@ -50,10 +33,7 @@ export function MapsManager() {
     setBusy(true);
     setError(null);
     try {
-      const { w, h } = await readDims(file);
-      const cols = Math.max(1, Math.ceil(w / gridSize));
-      const rows = Math.max(1, Math.ceil(h / gridSize));
-      await api.uploadMap(campaignId, file, { name: name.trim() || file.name, gridSize, cols, rows });
+      await uploadMapWithDims(campaignId, file, { name: name.trim() || file.name, gridSize });
       setName('');
       setFile(null);
       await refresh();
@@ -61,16 +41,6 @@ export function MapsManager() {
       setError(e instanceof ApiError ? `Upload failed (${e.message})` : 'Upload failed.');
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function setActive(m: MapSummary) {
-    setError(null);
-    try {
-      await api.setActiveMap(campaignId, m.id);
-      await refresh();
-    } catch {
-      setError('Could not set the active map.');
     }
   }
 
@@ -83,16 +53,12 @@ export function MapsManager() {
             <button style={linkBtn} onClick={() => void navigate({ to: '/lobby' })}>
               lobby
             </button>
-            {activeMapId && (
-              <button
-                style={{ ...primaryBtn, marginLeft: 8 }}
-                onClick={() =>
-                  void navigate({ to: '/campaign/$campaignId', params: { campaignId } })
-                }
-              >
-                Enter
-              </button>
-            )}
+            <button
+              style={{ ...primaryBtn, marginLeft: 8 }}
+              onClick={() => void navigate({ to: '/campaign/$campaignId', params: { campaignId } })}
+            >
+              Enter
+            </button>
           </div>
         </div>
 
@@ -160,18 +126,12 @@ export function MapsManager() {
                   {m.cols}×{m.rows} cells · {m.gridSize}px
                 </div>
               </div>
-              {activeMapId === m.id ? (
-                <span style={{ color: '#4ade80', fontSize: 13 }}>active</span>
-              ) : (
-                <button style={ghostBtn} onClick={() => setActive(m)}>
-                  Set active
-                </button>
-              )}
             </div>
           ))}
           {maps.length === 0 && (
             <div style={{ opacity: 0.5, fontSize: 13 }}>
-              No maps yet. Upload one above, then set it active to play.
+              No maps yet. Upload one above, then add it as a live tab from
+              inside the game.
             </div>
           )}
         </div>

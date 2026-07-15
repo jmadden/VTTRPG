@@ -120,20 +120,14 @@ export function Lobby() {
                   <button style={ghostBtn} onClick={() => manage(c)}>
                     Manage
                   </button>
-                  {c.activeMapId && (
-                    <button style={primaryBtn} onClick={() => enter(c)}>
-                      Enter
-                    </button>
-                  )}
-                </div>
-              ) : c.isMember ? (
-                c.activeMapId ? (
                   <button style={primaryBtn} onClick={() => enter(c)}>
                     Enter
                   </button>
-                ) : (
-                  <span style={{ opacity: 0.5, fontSize: 12 }}>no active map yet</span>
-                )
+                </div>
+              ) : c.isMember ? (
+                <button style={primaryBtn} onClick={() => enter(c)}>
+                  Enter
+                </button>
               ) : (
                 <div style={{ display: 'flex', gap: 6 }}>
                   <input

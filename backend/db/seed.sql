@@ -51,6 +51,10 @@ INSERT INTO campaign_members (campaign_id, user_id) VALUES
   ('33333333-3333-3333-3333-333333333333', '22222222-2222-2222-2222-222222222222')
 ON CONFLICT DO NOTHING;
 
--- Point the campaign at the demo map (active_map_id column added after game_maps).
-UPDATE campaigns SET active_map_id = '44444444-4444-4444-4444-444444444444'
- WHERE id = '33333333-3333-3333-3333-333333333333';
+-- Demo map is a live tab (gm-maps-1b): without this the seeded GM lands on an
+-- empty tab bar and the committed e2e (login.spec.ts) assertions about
+-- visible tokens would break.
+INSERT INTO campaign_live_maps (campaign_id, map_id, position, title) VALUES
+  ('33333333-3333-3333-3333-333333333333',
+   '44444444-4444-4444-4444-444444444444', 0, 'Demo Map')
+ON CONFLICT (campaign_id, map_id) DO NOTHING;

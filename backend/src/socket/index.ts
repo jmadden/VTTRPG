@@ -5,14 +5,18 @@ import {
   EV,
   revealedSet,
   type ClientToServerEvents,
+  type LiveMapEntry,
   type ServerToClientEvents,
 } from '@vtt/shared';
 import {
   filterTokensForClient,
   gatePlayerTokenMove,
+  isVisibleToPlayers,
+  stripGMFields,
   tokensNewlyHidden,
   tokensNewlyVisible,
 } from '../lib/visibilityFilter.js';
+import { normalizePositions } from '../lib/liveMaps.js';
 import {
   addRevealedTiles,
   applySheetUpdate,
@@ -24,9 +28,13 @@ import {
   getToken,
   getTokenOwner,
   getTokens,
+  isCampaignGm,
   isCampaignMember,
+  isMapLive,
   removeRevealedTiles,
+  setLiveMaps,
   touchSession,
+  updateTokenMap,
   updateTokenPosition,
 } from '../repo.js';
 import { sha256 } from '../auth.js';
@@ -42,6 +50,10 @@ type VttSocket = Socket<ClientToServerEvents, ServerToClientEvents, DefaultEvent
 
 const gmRoom = (mapId: string) => `map:${mapId}:gm`;
 const playersRoom = (mapId: string) => `map:${mapId}:players`;
+// Reached at connection time from the authenticated userId, independent of
+// which map (if any) the socket has joined. Lets set_live_maps broadcasts and
+// map_relocated pushes reach every open tab/device for the same user.
+const userRoom = (userId: string) => `user:${userId}`;
 
 export function registerSocketHandlers(io: VttServer): void {
   // Handshake auth: establish identity once per socket from the session token,
@@ -62,6 +74,11 @@ export function registerSocketHandlers(io: VttServer): void {
   });
 
   io.on('connection', (socket: VttSocket) => {
+    // Join this user's own room right away, before any event handler runs, so
+    // set_live_maps / map_relocated pushes can reach this socket regardless
+    // of whether (or which map) it has joined yet.
+    void socket.join(userRoom(socket.data.userId!));
+
     socket.on(EV.JOIN_MAP, async ({ mapId }, ack) => {
       try {
         const userId = socket.data.userId;
@@ -242,6 +259,92 @@ export function registerSocketHandlers(io: VttServer): void {
         io.to(gmRoom(mapId)).to(playersRoom(mapId)).emit(EV.SHEET_UPDATE, { sheetId, path, value });
       } catch (err) {
         console.error('[socket] sheet_update failed:', (err as Error).message);
+      }
+    });
+
+    // GM ONLY. Client always sends the full ordered live-tab list; the server
+    // rewrites campaign_live_maps to match. Broadcasts to the GM's own
+    // user:<id> room, so every open tab/device for that GM stays in sync —
+    // including the sender (no separate optimistic-update path needed).
+    socket.on(EV.SET_LIVE_MAPS, async ({ campaignId, liveMaps }, ack) => {
+      try {
+        const userId = socket.data.userId;
+        if (!userId) return ack?.({ ok: false, reason: 'unauthorized' });
+        if (!(await isCampaignGm(campaignId, userId))) {
+          return ack?.({ ok: false, reason: 'not_gm' });
+        }
+
+        // Note: removing a live tab while a player's token still points at
+        // that map is allowed with no guard (v1) — the token's map still
+        // exists in the library, nothing breaks.
+        const normalized = normalizePositions(liveMaps);
+        const saved: LiveMapEntry[] = await setLiveMaps(campaignId, normalized);
+
+        io.to(userRoom(userId)).emit(EV.SET_LIVE_MAPS, { campaignId, liveMaps: saved });
+        ack?.({ ok: true, liveMaps: saved });
+      } catch (err) {
+        console.error('[socket] set_live_maps failed:', (err as Error).message);
+        ack?.({ ok: false, reason: 'unauthorized' });
+      }
+    });
+
+    // GM ONLY. Cross-map move of an existing token — distinct from token_move
+    // (which stays "move within the map you're joined to"). Reassigns the
+    // token's map_id, fans out token_remove/token_add to both maps' rooms
+    // (gated by the destination map's fog for its players room), and pushes
+    // map_relocated to the token owner's user room so their client re-joins.
+    socket.on(EV.TOKEN_RELOCATE, async ({ tokenId, toMapId, x, y }, ack) => {
+      try {
+        const userId = socket.data.userId;
+        if (!userId || socket.data.role !== 'gm') {
+          return ack?.({ ok: false, reason: 'unauthorized' });
+        }
+
+        const token = await getToken(tokenId);
+        if (!token) return ack?.({ ok: false, reason: 'not_found' });
+
+        const sourceCampaign = await getCampaignForMap(token.mapId);
+        if (!sourceCampaign || sourceCampaign.gmUserId !== userId) {
+          return ack?.({ ok: false, reason: 'unauthorized' });
+        }
+
+        const targetCampaign = await getCampaignForMap(toMapId);
+        if (!targetCampaign || targetCampaign.campaignId !== sourceCampaign.campaignId) {
+          return ack?.({ ok: false, reason: 'not_found' });
+        }
+        if (!(await isMapLive(sourceCampaign.campaignId, toMapId))) {
+          return ack?.({ ok: false, reason: 'not_live' });
+        }
+
+        const fromMapId = token.mapId;
+        await updateTokenMap(tokenId, toMapId, x, y);
+
+        // Old map: both rooms lose the token entirely.
+        io.to(gmRoom(fromMapId)).to(playersRoom(fromMapId)).emit(EV.TOKEN_REMOVE, { tokenId });
+
+        // New map: GM room always gets the raw token; players room only if the
+        // destination map's fog currently makes it visible (anti-cheat holds
+        // across the relocation, same as any other move).
+        const relocated = { ...token, mapId: toMapId, x, y };
+        io.to(gmRoom(toMapId)).emit(EV.TOKEN_ADD, { token: stripGMFields(relocated) });
+
+        const newState = await getMapState(toMapId);
+        if (newState) {
+          const revealed = revealedSet(newState.revealed);
+          if (isVisibleToPlayers(relocated, revealed, newState.grid)) {
+            io.to(playersRoom(toMapId)).emit(EV.TOKEN_ADD, { token: stripGMFields(relocated) });
+          }
+        }
+
+        // Tell the relocated player's socket(s) to load the new map. The
+        // existing join_map/state_sync path takes it from here.
+        const ownerId = await getTokenOwner(tokenId);
+        if (ownerId) io.to(userRoom(ownerId)).emit(EV.MAP_RELOCATED, { mapId: toMapId });
+
+        ack?.({ ok: true });
+      } catch (err) {
+        console.error('[socket] token_relocate failed:', (err as Error).message);
+        ack?.({ ok: false, reason: 'not_found' });
       }
     });
   });

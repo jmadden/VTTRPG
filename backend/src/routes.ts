@@ -168,7 +168,7 @@ apiRouter.post(
       res.status(r.reason === 'not_found' ? 404 : 403).json({ error: r.reason });
       return;
     }
-    res.json(await repo.getCampaignDetail(id));
+    res.json(await repo.getCampaignDetail(id, req.userId!));
   }),
 );
 
@@ -182,7 +182,7 @@ apiRouter.get(
       res.status(403).json({ error: 'not_member' });
       return;
     }
-    const detail = await repo.getCampaignDetail(id);
+    const detail = await repo.getCampaignDetail(id, req.userId!);
     if (!detail) {
       res.status(404).json({ error: 'not_found' });
       return;
@@ -233,26 +233,5 @@ apiRouter.post(
       rows,
     });
     res.status(201).json(map);
-  }),
-);
-
-// POST /api/campaigns/:id/active-map -> set the campaign's active map (GM only).
-apiRouter.post(
-  '/campaigns/:id/active-map',
-  requireAuth,
-  requireCampaignGm,
-  ah(async (req, res) => {
-    const id = req.params.id!;
-    const mapId = req.body?.mapId;
-    if (typeof mapId !== 'string') {
-      res.status(400).json({ error: 'invalid' });
-      return;
-    }
-    const ok = await repo.setActiveMap(id, mapId);
-    if (!ok) {
-      res.status(404).json({ error: 'map_not_found' });
-      return;
-    }
-    res.status(204).end();
   }),
 );

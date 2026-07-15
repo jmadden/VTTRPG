@@ -209,3 +209,7 @@ HANDOFF.md
 test-results/
 playwright-report/
 .playwright/
+
+# User-uploaded map images (runtime content, not source)
+backend/uploads/
+uploads/

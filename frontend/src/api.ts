@@ -87,11 +87,6 @@ export const api = {
     }),
   getCampaign: (id: string) => req<CampaignDetail>(`/api/campaigns/${id}`),
   listMaps: (campaignId: string) => req<MapSummary[]>(`/api/campaigns/${campaignId}/maps`),
-  setActiveMap: (campaignId: string, mapId: string) =>
-    req<void>(`/api/campaigns/${campaignId}/active-map`, {
-      method: 'POST',
-      body: JSON.stringify({ mapId }),
-    }),
   // Multipart upload: separate from req() (which forces JSON). No content-type
   // header, so the browser sets the multipart boundary.
   async uploadMap(

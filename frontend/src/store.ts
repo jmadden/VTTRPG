@@ -12,6 +12,7 @@ import {
   type CellKey,
   type ClientToken,
   type Grid,
+  type LiveMapEntry,
   type RevealTilesBroadcastPlayers,
   type StateSyncPayload,
 } from '@vtt/shared';
@@ -33,6 +34,11 @@ export const state = {
   assetPath: null as string | null,
   // The logged-in user (null when signed out). Drives the route guard.
   session: null as { user: AuthUser } | null,
+  // GM's ordered live tabs (gm-maps-1b). Kept alongside the single-current-map
+  // shape above (the "off-tab live sync" cut for v1 — docs/11 §5): this list
+  // drives the TabBar, but only the joined map's state lives in the fields
+  // above.
+  liveMaps: [] as LiveMapEntry[],
 };
 
 type Listener = () => void;
@@ -123,4 +129,10 @@ export function moveToken(id: string, x: number, y: number): void {
 /** Convenience for a players-room reveal broadcast. */
 export function applyRevealBroadcast(p: RevealTilesBroadcastPlayers): void {
   applyReveal(p.revealed, p.newlyVisible);
+}
+
+/** Replace the GM's live-tab list (initial load, or a set_live_maps broadcast). */
+export function setLiveMaps(liveMaps: LiveMapEntry[]): void {
+  state.liveMaps = liveMaps;
+  notify();
 }

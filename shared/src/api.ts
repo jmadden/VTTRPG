@@ -4,6 +4,8 @@
 // contracts.ts; these are the request/response shapes for the /api routes.
 // ============================================================================
 
+import type { LiveMapEntry } from './contracts.js';
+
 /** The authenticated user as returned to the client. Never includes pin_hash. */
 export interface AuthUser {
   id: string;
@@ -30,7 +32,6 @@ export interface CampaignSummary {
   memberCount: number;
   isMember: boolean;
   isGm: boolean;
-  activeMapId: string | null;
 }
 
 /** A member row in the campaign detail. */
@@ -40,13 +41,27 @@ export interface CampaignMemberDto {
   isGm: boolean;
 }
 
-/** Full campaign detail: feeds the lobby detail + map entry. */
+/** A campaign member's current token/map, for the GM's Players Panel. */
+export interface MemberTokenDto {
+  userId: string;
+  tokenId: string;
+  mapId: string;
+}
+
+/** Full campaign detail: feeds the lobby detail + map entry.
+ *  `viewerMapId` / `memberTokens` are computed per-viewer (see getCampaignDetail). */
 export interface CampaignDetail {
   id: string;
   name: string;
   gmUserId: string;
-  activeMapId: string | null;
   members: CampaignMemberDto[];
+  liveMaps: LiveMapEntry[];
+  // The map the requesting viewer's own token currently sits on (null if
+  // unplaced, or if the viewer is the GM and has no token of their own).
+  viewerMapId: string | null;
+  // GM-only: every member's current token/map, for the Players Panel. Empty
+  // for non-GM viewers.
+  memberTokens: MemberTokenDto[];
 }
 
 /** A map in a campaign's library. */
