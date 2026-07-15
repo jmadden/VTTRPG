@@ -33,7 +33,8 @@ per case:
 | `gatePlayerTokenMove(token, prevX, prevY, revealed, grid)` | `token_move` | Returns `{kind: 'move' \| 'add' \| 'remove' \| 'none', ...}` for the players room. |
 | `tokensNewlyVisible(tokens, addedCells, grid)` | `reveal_tiles` | Hidden tokens on just-revealed cells (the `newlyVisible` list). |
 | `tokensNewlyHidden(tokens, concealedCells, grid)` | `conceal_tiles` | Hidden tokens on just-concealed cells (each becomes a `token_remove`). |
-| `stripGMFields(token)` | all | Removes GM-only fields. |
+| `stripGMFields(token)` | all, incl. `token_relocate` | Removes GM-only fields. |
+| `isVisibleToPlayers(token, revealed, grid)` | `token_relocate` (doc 11) | Called directly (not through `gatePlayerTokenMove`, since a relocation is a cross-map add, not a same-map transition) to decide whether the *destination* map's players room receives the relocated token. |
 
 ## The token_move gating table
 
@@ -57,6 +58,10 @@ In `backend/src/socket/index.ts`:
   players-room delta (`token_move` / `token_add` / `token_remove` / nothing).
 - **reveal_tiles** -> `tokensNewlyVisible` builds the `newlyVisible` list.
 - **conceal_tiles** -> `tokensNewlyHidden` yields a `token_remove` per token.
+- **token_relocate** (doc 11) -> the source map's rooms unconditionally get
+  `token_remove`; the destination map's `gm` room unconditionally gets
+  `token_add`, while its `players` room only gets it if `isVisibleToPlayers`
+  passes against the destination map's own fog.
 
 ## Authorization vs visibility
 

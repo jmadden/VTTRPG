@@ -26,6 +26,12 @@ A dependency-free port of `coords.ts` and the visibility filter was exercised:
 
 ## 3. Socket end-to-end (live DB, real Socket.io)
 
+**Historical narrative** — this describes how the fog/anti-cheat pipeline was
+originally verified, before the committed suite existed. That original
+coverage is now formalized as `test/integration/auth.test.ts` (the
+`join_map` + visibility assertions) and `test/integration/maps.test.ts`; see
+"Committed test suite" below for what's actually run today.
+
 Two throwaway `socket.io-client` scripts connected to the running backend and
 asserted, against the seeded demo map:
 
@@ -83,15 +89,39 @@ Tooling: Vitest (unit + integration) and `@playwright/test` (browser e2e), run
 against a dedicated `vtt_test` Postgres reset per run. Layout under `test/`:
 
 - `test/unit/` - coordinate round-trips + the visibility-filter gating table
-  (no DB).
+  (no DB), plus `liveMaps.test.ts` (`normalizePositions`: re-indexes to
+  `0..n-1`, dedupes by `mapId` with last-write-wins keeping the first-seen
+  slot, handles an empty list — doc 11).
 - `test/integration/` - auth REST (register, login, rate-limit, generic 401,
   `/me`), join-code enforcement, and the socket handshake + `join_map` (GM sees
   2 tokens, player 1 with the orc stripped, non-member rejected). Vitest
   `globalSetup` resets `vtt_test` and starts the backend on :4100; files run
   serially (`fileParallelism: false`) since they share one DB.
+  - `maps.test.ts` - map upload/library-list authz, and a joined map's
+    `assetPath` flowing into `state_sync` (trimmed this session: the old
+    `/active-map` REST route no longer exists, superseded by
+    `campaign_live_maps`).
+  - `live-maps.test.ts` (doc 11) - `set_live_maps` add/remove/reorder persists
+    and re-broadcasts to every socket in the GM's own `user:<id>` room; a
+    non-GM's attempt is rejected with no DB change; a `map_id` from a
+    different campaign is silently dropped.
+  - `token-relocate.test.ts` (doc 11) - GM-only enforcement; rejects a target
+    map in a different campaign; rejects a target that isn't a current live
+    tab; and the two-simultaneous-different-maps scenario (Player A on one
+    live map, Player B on another, GM relocates A onto B's map) asserting
+    fog-correct visibility on arrival, a `map_relocated` push to A, and a
+    `token_remove` on the map A left.
 - `test/e2e/login.spec.ts` - the real browser flow: unauthenticated -> /login,
   GM login -> lobby -> map (2 tokens), player -> 1 token. Playwright `webServer`
   starts the backend (:4000) + Vite (:5173); `globalSetup` resets `vtt_test`.
+  - `maps.spec.ts` - GM creates a campaign, uploads a map into the library,
+    enters with an empty live set (waiting shell, no canvas), then adds it as
+    a live tab from the in-game Map Library drawer and confirms the real image
+    renders.
+  - `tabs-relocate.spec.ts` (doc 11) - GM opens a second live tab on the
+    seeded Demo Campaign, drags the seeded player's row from the Players panel
+    onto it; asserts the player's own page updates via `map_relocated` with no
+    reload, and that the move persisted (`tokens.map_id` via `pg`).
 
 Run:
 ```bash

@@ -20,7 +20,15 @@ players room before it hits the wire, in `backend/src/lib/visibilityFilter.ts`
 (doc 04).
 
 On join the server also leaves any previously joined map's rooms, so switching
-role/map on one socket does not linger in both rooms.
+role/map on one socket does not linger in both rooms. Switching a GM's live
+tab, or relocating a player to another live map, reuses this exact mechanism
+(client just calls `join_map` again with a different `mapId`).
+
+**`user:<userId>`** - joined once at connection time (right after the
+handshake resolves identity), independent of any map. Lets `set_live_maps`
+broadcasts and `map_relocated` pushes reach every open tab/device for that
+user, and lets the server push to a specific player regardless of which map
+room their socket currently happens to be in.
 
 Cell keys are canonical strings from `shared/src/coords.ts`: `"col,row"` for
 square, axial `"q,r"` for hex.
@@ -29,9 +37,12 @@ square, axial `"q,r"` for hex.
 
 | Event | Direction | Restriction |
 |-------|-----------|-------------|
-| `join_map` | client -> server | any authenticated user |
+| `join_map` | client -> server (ack) | any campaign member |
 | `state_sync` | server -> client | on join |
-| `token_move` | client -> server, server -> rooms | GM or token owner |
+| `token_move` | client -> server, server -> rooms | GM or token owner (same map only) |
+| `token_relocate` | client -> server (ack) | GM only (cross-map move, doc 11) |
+| `set_live_maps` | client -> server (ack), server -> `user:<gmId>` | GM only (doc 11) |
+| `map_relocated` | server -> `user:<userId>` | pushed after a `token_relocate` |
 | `reveal_tiles` | client -> server, server -> rooms | GM only |
 | `conceal_tiles` | client -> server, server -> rooms | GM only |
 | `token_add` / `token_remove` | server -> players | derived deltas |
@@ -41,12 +52,23 @@ square, axial `"q,r"` for hex.
 
 ## `join_map`
 
-**Client -> server**
+**Client -> server** (with an ack callback)
 ```json
-{ "mapId": "44444444-...", "userId": "11111111-..." }
+{ "mapId": "44444444-..." }
 ```
-Server looks up the user's role, joins the correct room, and replies with
-`state_sync`.
+No `userId` in the payload — identity comes from the authenticated socket
+handshake (`auth.token` -> session lookup), not the client's claim. This was a
+deliberate anti-impersonation fix (doc 09): the server derives role by
+comparing the handshake's `userId` against the campaign's `gm_user_id`, so a
+client can no longer claim someone else's identity by passing their UUID.
+
+**Ack**
+```ts
+{ ok: true } | { ok: false, reason: 'not_found' | 'not_member' | 'unauthorized' }
+```
+`not_found` - the map doesn't exist. `not_member` - authenticated, but not a
+member of that map's campaign. `unauthorized` - no valid session. On success
+the server also emits `state_sync` to that socket.
 
 ---
 
@@ -59,6 +81,7 @@ The initial snapshot, already filtered for the client's role.
   "mapId": "44444444-...",
   "gridType": "square",
   "gridSize": 70,
+  "assetPath": "/assets/demo-map.png",
   "cols": 16,
   "rows": 12,
   "revealed": ["0,0", "1,0", "2,0"],
@@ -66,16 +89,22 @@ The initial snapshot, already filtered for the client's role.
     { "id": "6666...", "mapId": "44444444-...", "characterSheetId": "5555...",
       "name": "Aria", "type": "player", "x": 105, "y": 105 }
   ],
-  "movableTokenIds": ["6666..."]
+  "movableTokenIds": ["6666..."],
+  "role": "gm",
+  "userId": "1111..."
 }
 ```
 
 - For players, hidden tokens on unrevealed cells are absent entirely and the
   `hidden` field is stripped from the rest (`ClientToken`).
+- `assetPath`: the map image to render under the grid (`null` for a plain grid
+  with no background), served from `ASSET_DIR`.
 - `cols`/`rows` size the fog grid on the client (no guessing).
 - `movableTokenIds`: ids this client may drag. GM = all tokens; player = tokens
   whose sheet they own. Point-in-time snapshot; the UI uses it to gate dragging
   so a player never optimistically drags a token the server would reject.
+- `role` / `userId`: server-decided identity for this client (doc 09) — the
+  frontend no longer has a GM/Player toggle; this is the only source of truth.
 
 ---
 
@@ -108,6 +137,91 @@ computed from its cell before/after against `revealed`:
 
 This closes the leak where broadcasting a raw move would reveal a hidden
 monster's existence and position to players.
+
+---
+
+## `token_relocate` - GM ONLY (doc 11)
+
+Cross-map move of an existing token — distinct from `token_move`, which stays
+"move within the map you're joined to" and is otherwise unchanged. Reassigns
+the token's `map_id` and fans out to both maps' rooms plus the token owner's
+`user:<userId>` room.
+
+**GM client -> server** (with an ack callback)
+```json
+{ "tokenId": "6666...", "toMapId": "99999999-...", "x": 100, "y": 100 }
+```
+
+**Ack**
+```ts
+{ ok: true } | { ok: false, reason: 'unauthorized' | 'not_found' | 'not_live' }
+```
+`unauthorized` - not the GM, or not the GM of the token's source map's
+campaign. `not_found` - token doesn't exist, or `toMapId` isn't in the same
+campaign. `not_live` - `toMapId` isn't one of the campaign's current live tabs
+(`campaign_live_maps`).
+
+**Server, on success:**
+- **Old map, both rooms** get `token_remove {tokenId}` — the token vanishes
+  from the map it left entirely, not just for players.
+- **New map's `gm` room** gets `token_add {token}` unconditionally.
+- **New map's `players` room** gets `token_add {token}` only if
+  `isVisibleToPlayers` says so against the *destination* map's own fog (the
+  same anti-cheat rule as any other token, doc 04) — relocating a hidden
+  monster onto an unrevealed cell does not leak it.
+- **The token owner's `user:<userId>` room** gets `map_relocated` (below) —
+  this is how the player's own client finds out it needs to switch maps.
+
+---
+
+## `set_live_maps` - GM ONLY (doc 11)
+
+The GM's ordered live-map tabs. The client always sends the **full** ordered
+list (not a single add/remove) — the server rewrites `campaign_live_maps` to
+match it in one atomic statement, so this doubles as add, remove, reorder, and
+rename in a single event.
+
+**GM client -> server** (with an ack callback)
+```json
+{
+  "campaignId": "33333333-...",
+  "liveMaps": [
+    { "mapId": "44444444-...", "title": "Demo Map", "position": 0 },
+    { "mapId": "99999999-...", "title": "Tavern", "position": 1 }
+  ]
+}
+```
+
+**Ack**
+```ts
+{ ok: true, liveMaps: LiveMapEntry[] } | { ok: false, reason: 'unauthorized' | 'not_gm' }
+```
+The server normalizes positions (re-indexes to `0..n-1`, dedupes by `mapId`)
+before saving, and silently drops any `mapId` that doesn't belong to
+`campaignId`.
+
+**Server -> the GM's own `user:<gmId>` room** (broadcast form, same shape as
+the ack's `liveMaps`, so every open tab/device for that GM — including the
+sender — stays in sync):
+```json
+{ "campaignId": "33333333-...", "liveMaps": [ /* the saved, normalized list */ ] }
+```
+
+---
+
+## `map_relocated` - server push (doc 11)
+
+Tells a relocated player's socket(s) to re-join a different map. Pushed to
+`user:<userId>` (the token owner), so it reaches every device/tab that player
+has open, not just whichever one happened to trigger something.
+
+```json
+{ "mapId": "99999999-..." }
+```
+
+The client's entire response is to call `join_map` again with this `mapId` —
+the existing wholesale `state_sync` on join replaces the store, so there is no
+separate incremental-relocation code path on the client.
 
 ---
 
@@ -207,7 +321,13 @@ Delta contracts describe shape; the server also enforces who may send what:
 - **`sheet_update`** - sender must own the sheet
   (`character_sheets.owner_user_id`) or be the GM.
 - **`token_move`** - sender must be the GM or own the token (via its linked
-  `character_sheet_id`).
+  `character_sheet_id`); same-map only (the token must be on the map the
+  sender is currently joined to).
+- **`token_relocate`** - GM only, and specifically the GM of the token's
+  source map's campaign; the destination map must belong to that same
+  campaign and be one of its current live tabs.
+- **`set_live_maps`** - GM only (`isCampaignGm`), checked against the
+  `campaignId` in the payload, not tied to any single map.
 
 `movableTokenIds` in `state_sync` is the client-side mirror of the `token_move`
 rule, used only to decide draggability in the UI. The server is the authority;

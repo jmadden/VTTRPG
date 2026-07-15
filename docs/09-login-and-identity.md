@@ -9,6 +9,13 @@ per-campaign join code. Coverage is in the committed suite (docs/06). One
 deviation from the text below: PINs are hashed with **bcryptjs** (pure JS) rather
 than native `bcrypt`, to keep the Alpine Docker image toolchain-free.
 
+**Superseded (see docs/11):** the `campaigns.active_map_id` column and its
+lobby-gating logic described in a few places below (sections 3, 5, 7, 8, 9)
+were replaced by `campaign_live_maps` in the GM-toolkit work — that column no
+longer exists in `schema.sql`. Treat every reference to `active_map_id` below
+as historical; the lobby's "Enter" button is no longer gated on it (it's
+always available — see docs/11 for the current model).
+
 ## 1. Why
 
 Today there is no identity at all:
@@ -140,7 +147,7 @@ All endpoints under `/api`:
 | `GET /api/campaigns` | yes | -> `[{id, name, gmName, memberCount, isMember, isGm}]` | Lobby list. Lists all campaigns (open join; see section 9). |
 | `POST /api/campaigns` | yes | `{name}` -> 201 campaign | Sets `gm_user_id` = caller; inserts the GM's member row. |
 | `POST /api/campaigns/:id/join` | yes | -> campaign detail | `ON CONFLICT DO NOTHING`; idempotent re-join. |
-| `GET /api/campaigns/:id` | yes, member | -> `{id, name, gmUserId, activeMapId, members: [{id, displayName, isGm}]}` | Feeds the lobby detail, map entry, and later the docs/08 audience selector. |
+| `GET /api/campaigns/:id` | yes, member | -> `{id, name, gmUserId, members: [{id, displayName, isGm}], liveMaps: [{mapId,title,position}], viewerMapId, memberTokens}` (current shape, docs/11 — no more `activeMapId`) | Feeds the lobby detail, the campaign route's map resolution, and the GM's Players panel. |
 
 New repo functions (`backend/src/repo.ts`): `createUser`, `getUserByName`,
 `createSession` / `getSessionUser` / `deleteSession` / `touchSession`,
@@ -195,11 +202,14 @@ utility; do not build a stopgap.
 - An `_authed` layout route whose `beforeLoad` redirects to `/login` when the
   store has no session. Children:
   - `/lobby` - campaign list, create form, join buttons; "Enter" per campaign
-    (disabled with "no active map yet" when `activeMapId` is null).
+    is **always shown now** (current model, docs/11 — no more disabled "no
+    active map yet" state).
   - `/campaign/$campaignId` - MapView. The loader fetches
-    `GET /api/campaigns/:id`, resolves `activeMapId`, connects the socket, and
-    emits `join_map`. This replaces the hardcoded `/` MapView; `/` redirects to
-    `/lobby`.
+    `GET /api/campaigns/:id` and resolves `mapId` as `liveMaps[0]` for the GM
+    or `viewerMapId` for a player (current model, docs/11 — not a single
+    `activeMapId`); `mapId` can be `null` (empty live set / unplaced player),
+    which renders an in-component empty state rather than redirecting. This
+    replaces the hardcoded `/` MapView; `/` redirects to `/lobby`.
 
 **Boot sequence** (`frontend/src/main.tsx`): read `localStorage['vtt.token']`;
 if present, `GET /api/me` and hydrate the store before rendering the router, so

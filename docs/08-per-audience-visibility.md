@@ -12,6 +12,12 @@ by docs/11's tab-based multi-map model (players load the map their token is on);
 the per-audience fog model below (base + per-user overlay, `map_visibility`) is
 unchanged and carried forward.
 
+**Status check:** docs/11 Phase 1 (the tab-based multi-map model this doc
+defers to) is now **built** — `campaign_live_maps`, GM live tabs,
+`token_relocate`. This doc's own subject, the per-audience fog overlay
+(`map_visibility`), remains **Phase 3, not built** (no such table exists yet);
+fog is still map-level as described in docs 02/03/04.
+
 ## 1. Why
 
 Today fog is map-level: `game_maps.revealed_tiles` is one set shared by all

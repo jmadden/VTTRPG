@@ -61,8 +61,10 @@ cp .env.example .env             # set POSTGRES_PASSWORD
 npm run deploy:local             # build image + start postgres-db + vtt-app
 curl http://localhost:4000/health   # {"ok":true,"db":true}
 ```
-Open http://localhost:4000 and drive the seeded demo (GM/Player toggle,
-reveal/conceal fog, drag a token). Data and uploads persist across
+Open http://localhost:4000, log in as the seeded GM or player (docs/09 —
+`Game Master`/`1234` or `Player One`/`4321`; role is server-derived from
+login, no client toggle), and drive the demo (live map tabs, reveal/conceal
+fog, drag a token). Data and uploads persist across
 `deploy:down` / `deploy:local`; `docker compose down -v` wipes them. On the very
 first boot Postgres runs its init scripts on a temporary socket, so the app may
 log a couple of DB errors for a second before it connects; it self-heals.
@@ -140,9 +142,10 @@ Copy-paste guide; replace `YOUR_DOMAIN` and the Postgres password.
   launch. Moot once in-app content creation (docs/09, docs/07) ships.
 - **Password changes after first init** do not take effect on the existing
   `pgdata` volume; `docker compose down -v` (destroys data) or change it in-DB.
-- **Login before public exposure.** Auth (docs/09) is not built yet; until it is,
-  anyone with the URL has full access. Keep any tunnel/droplet within a trusted
-  group.
+- **Login is built** (docs/09) — display name + bcrypt-hashed PIN, per-campaign
+  join codes. The residual risk is the small PIN space (4-6 digits), not an
+  absence of auth. Keep any public tunnel/droplet within a trusted group
+  regardless.
 - **Scaling.** Single app instance, so no sticky-session config is needed. If you
   ever scale out, force the websocket transport and add a shared Socket.io
   adapter (Redis).

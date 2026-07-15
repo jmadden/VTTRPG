@@ -23,6 +23,7 @@ vtt/
 ├─ shared/                   # @vtt/shared - single source of truth for the wire
 │  ├─ src/
 │  │  ├─ contracts.ts        # every WebSocket event payload type + EV names
+│  │  ├─ api.ts              # REST DTOs (CampaignDetail, LiveMapEntry, MemberTokenDto, ...)
 │  │  ├─ coords.ts           # square + hex cell math (worldToCell, cellToWorld, ...)
 │  │  └─ index.ts            # barrel re-export
 │  ├─ dist/                  # compiled output (built; consumed by the other pkgs)
@@ -34,11 +35,16 @@ vtt/
 │  │  ├─ env.ts              # loads root .env FIRST (before db.ts builds the pool)
 │  │  ├─ index.ts            # Express (health + assets) + Socket.io bootstrap
 │  │  ├─ db.ts               # pg Pool + query helper
+│  │  ├─ auth.ts             # bcrypt PIN hashing, session tokens, requireAuth middleware (doc 09)
+│  │  ├─ routes.ts           # REST: register/login/logout/me, campaigns, maps (doc 09)
 │  │  ├─ repo.ts             # hand-written SQL mapped to shared domain types
 │  │  ├─ socket/
 │  │  │  └─ index.ts         # all socket event handlers (contract + auth)
-│  │  └─ lib/
-│  │     └─ visibilityFilter.ts   # anti-cheat choke point (see doc 04)
+│  │  ├─ lib/
+│  │  │  ├─ visibilityFilter.ts   # anti-cheat choke point (see doc 04)
+│  │  │  └─ liveMaps.ts           # pure set_live_maps normalization (doc 11)
+│  │  └─ scripts/
+│  │     └─ pinReset.ts      # one-off CLI to reset a seeded user's PIN
 │  ├─ db/
 │  │  ├─ schema.sql          # raw PostgreSQL DDL (see doc 02)
 │  │  └─ seed.sql            # deterministic demo data
@@ -48,12 +54,23 @@ vtt/
 └─ frontend/                 # @vtt/frontend - Vite + React + TanStack Router + PixiJS
    ├─ index.html
    ├─ src/
-   │  ├─ main.tsx            # React mount + RouterProvider
-   │  ├─ router.tsx          # TanStack Router (code-based, one route)
+   │  ├─ main.tsx            # React mount + RouterProvider; hydrates session before render
+   │  ├─ router.tsx          # TanStack Router (code-based): login, lobby, campaign/map, manage
+   │  ├─ api.ts              # REST client (bearer token in localStorage)
    │  ├─ socket.ts           # typed socket.io-client (shared event maps)
    │  ├─ store.ts            # tiny vanilla store (useSyncExternalStore)
    │  ├─ game/PixiStage.ts   # Pixi v8 Application, layers, input (see doc 05)
-   │  └─ routes/MapView.tsx  # wires socket <-> store <-> Pixi + HUD controls
+   │  └─ routes/
+   │     ├─ Login.tsx        # display name + PIN sign in / register (doc 09)
+   │     ├─ Lobby.tsx        # campaign list, create, join by code
+   │     ├─ MapsManager.tsx  # GM map library CRUD (upload; "Manage" route)
+   │     ├─ MapView.tsx      # wires socket <-> store <-> Pixi + the GM/player HUD
+   │     ├─ mapUpload.ts     # shared upload helper (MapsManager + LibraryDrawer)
+   │     ├─ ui.ts            # shared style tokens (panel, card, surface, accentGm, ...)
+   │     └─ gm/              # GM-only in-game toolkit UI (doc 11)
+   │        ├─ TabBar.tsx        # live map tabs
+   │        ├─ LibraryDrawer.tsx # "Map Library" drawer: add existing / upload new
+   │        └─ PlayersPanel.tsx  # drag a player's row onto a tab to relocate them
    ├─ package.json
    ├─ tsconfig.json
    └─ vite.config.ts
@@ -82,15 +99,23 @@ From `package.json`:
 
 | Script | What it does |
 |--------|--------------|
-| `npm run dev` | `concurrently` runs backend (`tsx watch`) and frontend (`vite`) together |
+| `npm run dev` | `concurrently` runs backend (`tsx watch`) and frontend (`vite`) together — native day-to-day dev |
 | `npm run build` | Builds `shared`, then `backend`, then `frontend` (order matters) |
+| `npm run start` | `SERVE_CLIENT=1` + run the built backend (serves the SPA same-origin; no Vite) |
+| `npm run serve` | `build` then `start` — local prod-parity run without Docker |
 | `npm run typecheck` | `tsc --noEmit` across all three workspaces |
 | `npm run db:init` | `psql "$DATABASE_URL" -f backend/db/schema.sql` (needs `DATABASE_URL` exported in the shell) |
 | `npm run db:seed` | `psql "$DATABASE_URL" -f backend/db/seed.sql` (demo data; needs `DATABASE_URL` exported) |
 | `npm run db:setup` | `db:init` then `db:seed` |
+| `npm run db:reset` | Drop + recreate the `public` schema, then `db:setup` — schema is edited in place pre-release (no migrations), so this is how a changed `schema.sql` gets picked up |
+| `npm run deploy:local` | `docker compose up -d --build` — build + start the Docker stack (doc 10) |
+| `npm run deploy:cloud` | Same, plus Caddy (`--profile edge`) for a real domain |
+| `npm run deploy:down` | `docker compose down` |
+| `npm run test` | `build -w shared` + ensure `vtt_test` exists + `test:unit` + `test:e2e` (doc 06) |
+| `npm run test:unit` / `test:e2e` | Just the Vitest or just the Playwright suite |
 
-Root devDependencies: `typescript`, `@types/node`, `concurrently`, and
-`playwright` (used for the browser end-to-end checks in doc 06).
+Root devDependencies: `typescript`, `@types/node`, `concurrently`, `vitest`, and
+`@playwright/test`/`playwright` (used for the committed suite in doc 06).
 
 ## Environment loading (a real gotcha, solved)
 
@@ -110,8 +135,20 @@ runs with its own working directory under `npm run dev`:
 
 ## Player connection model
 
-1. GM runs `npm run dev`; the backend binds `PORT` (4000) and Vite serves with
-   `host: true` (all interfaces) on 5173.
-2. Players open the GM's LAN IP (`http://192.168.x.x:5173`) or an ngrok tunnel.
-3. `CORS_ORIGINS` (backend) and `VITE_SERVER_URL` (frontend) must include
-   whichever origin players actually use. See `.env.example` and the README.
+Entry point is login, not a bare URL: every player (including the GM) signs in
+with a display name + PIN (doc 09); role is derived per campaign
+(`campaigns.gm_user_id`), not a client toggle. Two ways to actually reach the
+app:
+
+**Native dev** (day-to-day building, this doc's default): GM runs `npm run
+dev`; the backend binds `PORT` (4000) and Vite serves with `host: true` (all
+interfaces) on 5173. Players open the GM's LAN IP (`http://192.168.x.x:5173`)
+or an ngrok tunnel pointed at both ports. `CORS_ORIGINS` (backend) and
+`VITE_SERVER_URL` (frontend) must include whichever origin players actually
+use. See `.env.example` and the README.
+
+**Docker (hosting a real session)**: the backend serves the SPA + API +
+sockets same-origin on one port, so there's no CORS config at all — players
+just open whatever URL reaches that port (`localhost`, a LAN IP, an ngrok/
+Tailscale tunnel, or a real domain via Caddy). See doc 10 for the three
+deployment modes and README section 8.

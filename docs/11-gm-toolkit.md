@@ -1,10 +1,17 @@
 # 11 - Game Master Toolkit
 
-**Status: design, not yet built.** This doc scopes and sequences the whole GM
-toolkit: multi-map management, tokens and monsters, per-audience fog, session
-tools, and an in-app map builder. It is built in phases (section 8); each phase
-ships and is verified before the next. Login (docs/09) is the prerequisite and
-is done, so per-user and per-campaign identity is real.
+**Status: Phase 1 (Maps foundation) done; Phases 2-5 design only.** This doc
+scopes and sequences the whole GM toolkit: multi-map management, tokens and
+monsters, per-audience fog, session tools, and an in-app map builder. It is
+built in phases (section 8); each phase ships and is verified before the
+next. Login (docs/09) is the prerequisite and is done, so per-user and
+per-campaign identity is real.
+
+Phase 1 shipped in two slices: gm-maps-1a (map upload, library, single active
+map, real image render) and gm-maps-1b (`campaign_live_maps` tabs, GM tab
+bar/library drawer/players panel, cross-map token relocation, players
+auto-loading whichever map their token is on). `campaigns.active_map_id` and
+its REST route no longer exist, superseded by `campaign_live_maps`.
 
 This design absorbs the "breakout maps" idea from `docs/08` into a first-class
 model (section 2) and treats docs/08's per-audience fog as one phase here.
@@ -98,18 +105,25 @@ New in later phases:
   tabs: the GM's socket joins the room of the tab it is viewing (switching tabs =
   leave/join, exactly like today's `join_map`); a player's socket joins the room
   of the map their token is on.
-- **New GM events:** `set_live_maps` (add/remove/reorder tabs, broadcast) and
-  token CRUD (`token_create` / `token_delete`; `token_move` already carries a
-  position and now also a `map_id` for cross-map moves). Fog events gain the
-  docs/08 `audience` field in Phase 3.
+- **New GM events (Phase 1, built):** `set_live_maps` (GM sends the full
+  ordered live-tab list, server rewrites `campaign_live_maps` atomically,
+  broadcasts to the GM's own `user:<id>` room) and `token_relocate` (a
+  **distinct event from `token_move`**, not an extension of it — `token_move`
+  itself is unchanged and stays same-map-only; `token_relocate` is GM-only,
+  reassigns a token's `map_id`, and pushes `map_relocated` to the relocated
+  player's `user:<id>` room). Token CRUD (`token_create`/`token_delete`) is
+  still **Phase 2, not built** — Phase 1 only relocates tokens that already
+  exist. Fog events gain the docs/08 `audience` field in Phase 3.
 - **Player relocation flow (one action):** the GM moves the player's token to
   another live map (its `map_id` changes); the server tells that player's socket
   to load the new map; the player re-runs the join flow and gets a fresh,
   filtered `state_sync`. Reuses the proven join/state_sync path.
 - **Off-tab awareness (v1 cut):** the GM's non-focused tabs do NOT live-update;
-  switching a tab re-joins that map. Each tab shows a lightweight "activity" dot
-  so the GM is not blind to a group they are not looking at. Full multi-room live
-  sync of all open tabs is a later optimization.
+  switching a tab re-joins that map. **Not built:** the "activity" dot on
+  non-focused tabs described in earlier drafts of this doc — there is
+  currently no indicator at all that something happened on a tab the GM isn't
+  looking at. Open TODO, not shipped. Full multi-room live sync of all open
+  tabs is a later optimization regardless.
 - Emission stays per-socket by effective set (docs/08) and now also per current
   map; docs/08 notes this is additive, not a rewrite.
 
@@ -122,6 +136,17 @@ New in later phases:
 - **Player view:** the current single-map experience, unchanged; it loads
   whatever map the player's token is on and re-loads when the GM moves them.
 - Reuse: `PixiStage`, the store, the socket handshake, the visibility filter.
+
+**Phase 1 UI note (built, but not originally scoped in this design — a
+follow-up visual pass):** the GM toolbar was reworked from four disconnected
+floating panels into one cohesive bar. New shared tokens in
+`frontend/src/routes/ui.ts` (`surface`, `space`, `eyebrow`, `gmToggle`,
+`tabChip`) introduce an amber `accentGm` reserved for GM-authority state (the
+active live tab, the active fog tool) — visually distinct from the green
+`primaryBtn` used for submit/confirm actions elsewhere. The library drawer was
+renamed "Map Library" and now lists every campaign map with a thumbnail,
+marking already-added ones as ghosted "Added" rather than hiding them
+(`gm/LibraryDrawer.tsx`).
 
 ## 7. Authorization
 
