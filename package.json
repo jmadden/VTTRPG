@@ -9,7 +9,8 @@
     "frontend"
   ],
   "scripts": {
-    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "predev": "npm run build -w shared",
+    "dev": "concurrently -n shared,api,web -c magenta,blue,green \"npm run dev -w shared\" \"npm run dev -w backend\" \"npm run dev -w frontend\"",
     "build": "npm run build -w shared && npm run build -w backend && npm run build -w frontend",
     "start": "SERVE_CLIENT=1 npm run start -w backend",
     "serve": "npm run build && SERVE_CLIENT=1 npm run start -w backend",
