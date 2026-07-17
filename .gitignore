@@ -213,3 +213,6 @@ playwright-report/
 # User-uploaded map images (runtime content, not source)
 backend/uploads/
 uploads/
+
+# Brainstorming visual companion mockups (scratch, not source)
+.superpowers/

@@ -427,4 +427,5 @@ Run from the repo root:
 - `docs/09-login-and-identity.md` - login, sessions, and per-campaign roles design (built)
 - `docs/10-cloud-deployment.md` - deployment: one Docker stack, three modes (local, self-host + tunnel, DigitalOcean); built and verified locally
 - `docs/11-gm-toolkit.md` - GM toolkit design: tab-based multi-map model, tokens, per-audience fog, session tools, builder (Phase 1 built; phases 2-5 not yet)
+- `docs/12-gm-lobby-hierarchy.md` - GM Lobby hierarchy design: Games above Campaigns, reusable Map Library, standing player roster, campaign lifecycle (design only, not yet built)
 - `shared/src/contracts.ts` - the authoritative payload types
