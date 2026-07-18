@@ -216,3 +216,7 @@ uploads/
 
 # Brainstorming visual companion mockups (scratch, not source)
 .superpowers/
+
+# Claude Code local-only settings and session workflow scratch
+.claude/settings.local.json
+.claude/workflows/
