@@ -19,8 +19,10 @@ test('unauthenticated visit redirects to /login', async ({ page }) => {
 test('GM logs in, enters the seeded map, sees 2 tokens (server-derived role)', async ({ page }) => {
   await page.goto('/login');
   await login(page, 'Game Master', '1234');
-  await expect(page.getByText('Demo Campaign')).toBeVisible();
-  await page.getByRole('button', { name: 'Enter' }).first().click();
+  await page.getByText('Demo Campaign').first().click(); // the seeded Game in the sidebar
+  await page.waitForURL('**/lobby/game/**');
+  await expect(page.getByText('Demo Campaign').last()).toBeVisible(); // the campaign card
+  await page.getByRole('button', { name: 'Enter' }).click();
   await page.waitForSelector('canvas');
   await expect.poll(() => bodyText(page)).toContain('VTT · GM');
   await expect.poll(async () => /tokens:\s*2/.test(await bodyText(page))).toBe(true);
