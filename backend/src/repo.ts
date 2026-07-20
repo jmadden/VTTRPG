@@ -6,10 +6,13 @@ import type {
   CampaignDetail,
   CampaignSummary,
   CellKey,
+  GameDetail,
+  GameMemberDto,
   GameSummary,
   Grid,
   LiveMapEntry,
   MapSummary,
+  MapTemplateSummary,
   MemberTokenDto,
   Token,
   TokenType,
@@ -172,6 +175,75 @@ export async function isGameGm(gameId: string, userId: string): Promise<boolean>
     userId,
   ]);
   return res.rows.length > 0;
+}
+
+/** Every Game-level roster member with their persistent character sheet, if any. */
+export async function listGameMembers(gameId: string): Promise<GameMemberDto[]> {
+  const res = await query<{ user_id: string; display_name: string; character_sheet_id: string | null }>(
+    `SELECT gm.user_id, u.display_name, gm.character_sheet_id
+       FROM game_members gm JOIN users u ON u.id = gm.user_id
+      WHERE gm.game_id = $1
+      ORDER BY gm.joined_at`,
+    [gameId],
+  );
+  return res.rows.map((r) => ({
+    userId: r.user_id,
+    displayName: r.display_name,
+    characterSheetId: r.character_sheet_id,
+  }));
+}
+
+/** Campaign summaries scoped to one Game (same shape as listCampaigns, just
+ *  filtered by game_id instead of "every campaign the user can see"). */
+async function listCampaignsForGame(gameId: string, userId: string): Promise<CampaignSummary[]> {
+  const res = await query<{
+    id: string;
+    name: string;
+    gm_name: string;
+    member_count: string;
+    is_member: boolean;
+    is_gm: boolean;
+    status: CampaignSummary['status'];
+  }>(
+    `SELECT c.id, c.name, c.status,
+            gm.display_name AS gm_name,
+            (SELECT count(*) FROM campaign_members m WHERE m.campaign_id = c.id) AS member_count,
+            EXISTS(SELECT 1 FROM campaign_members m WHERE m.campaign_id = c.id AND m.user_id = $2) AS is_member,
+            (c.gm_user_id = $2) AS is_gm
+       FROM campaigns c JOIN users gm ON gm.id = c.gm_user_id
+      WHERE c.game_id = $1
+      ORDER BY c.created_at`,
+    [gameId, userId],
+  );
+  return res.rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    gmName: r.gm_name,
+    memberCount: Number(r.member_count),
+    isMember: r.is_member,
+    isGm: r.is_gm,
+    status: r.status,
+  }));
+}
+
+/** Map Library for a Game (stub — the map-templates task implements the real
+ *  upload/list; getGameDetail below will call the real version once it lands). */
+export async function listMapTemplates(_gameId: string): Promise<MapTemplateSummary[]> {
+  return [];
+}
+
+/** Assembles the full Game detail: campaigns, roster, and (until the Map
+ *  Library is wired in) an empty template list. */
+export async function getGameDetail(gameId: string, userId: string): Promise<GameDetail | null> {
+  const games = await listGames(userId);
+  const game = games.find((g) => g.id === gameId);
+  if (!game) return null;
+
+  const campaigns = await listCampaignsForGame(gameId, userId);
+  const mapTemplates = await listMapTemplates(gameId);
+  const members = await listGameMembers(gameId);
+
+  return { ...game, campaigns, mapTemplates, members };
 }
 
 // ── campaigns / membership ────────────────────────────────────────────────

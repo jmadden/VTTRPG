@@ -67,3 +67,34 @@ describe('campaign creation under a Game (Phase 1)', () => {
     expect(forbidden.status).toBe(403);
   });
 });
+
+describe('game detail assembly (Phase 1)', () => {
+  it('assembles campaigns and members for a Game', async () => {
+    const gm = await registerToken('DetailGm', '1234');
+    const game = await createGame(gm, 'Detail Setting');
+    await fetch(`${BACKEND_URL}/api/campaigns`, {
+      method: 'POST', headers: authH(gm), body: JSON.stringify({ gameId: game.id, name: 'A Campaign' }),
+    });
+
+    const detail = (await (
+      await fetch(`${BACKEND_URL}/api/games/${game.id}`, { headers: authH(gm) })
+    ).json()) as { campaigns: { name: string }[]; members: unknown[]; mapTemplates: unknown[] };
+    expect(detail.campaigns.map((c) => c.name)).toEqual(['A Campaign']);
+    expect(detail.members).toEqual([]);
+    expect(detail.mapTemplates).toEqual([]);
+  });
+});
+
+describe('requireGameGm (Phase 1)', () => {
+  it('GET /api/games/:id succeeds for the GM, 403s for anyone else', async () => {
+    const gm = await registerToken('MiddlewareGm', '1234');
+    const game = await createGame(gm, 'MW Setting');
+
+    const ok = await fetch(`${BACKEND_URL}/api/games/${game.id}`, { headers: authH(gm) });
+    expect(ok.status).toBe(200);
+
+    const intruder = await registerToken('MiddlewareIntruder', '1234');
+    const forbidden = await fetch(`${BACKEND_URL}/api/games/${game.id}`, { headers: authH(intruder) });
+    expect(forbidden.status).toBe(403);
+  });
+});

@@ -51,6 +51,17 @@ const requireCampaignGm: RequestHandler = (req, res, next) => {
     .catch(next);
 };
 
+/** Require the caller to be the GM of the Game in :id (docs/12 §7). */
+const requireGameGm: RequestHandler = (req, res, next) => {
+  void repo
+    .isGameGm(req.params.id!, req.userId!)
+    .then((ok) => {
+      if (ok) next();
+      else res.status(403).json({ error: 'not_game_gm' });
+    })
+    .catch(next);
+};
+
 // POST /api/register -> 201 { token, user }. Auto-login. 409 on name collision.
 apiRouter.post(
   '/register',
@@ -155,6 +166,21 @@ apiRouter.get(
   requireAuth,
   ah(async (req, res) => {
     res.json(await repo.listGames(req.userId!));
+  }),
+);
+
+// GET /api/games/:id -> full Game detail (Campaigns/Map Library/Roster tabs).
+apiRouter.get(
+  '/games/:id',
+  requireAuth,
+  requireGameGm,
+  ah(async (req, res) => {
+    const detail = await repo.getGameDetail(req.params.id!, req.userId!);
+    if (!detail) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+    res.json(detail);
   }),
 );
 
