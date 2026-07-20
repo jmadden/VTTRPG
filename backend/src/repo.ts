@@ -767,6 +767,43 @@ export async function getTokenOwner(tokenId: string): Promise<string | null> {
   return res.rows[0]?.owner_user_id ?? null;
 }
 
+// ── campaign lifecycle (docs/12 §4) ──────────────────────────────────────
+
+type TransitionResult =
+  | { ok: true; status: CampaignSummary['status'] }
+  | { ok: false; reason: 'not_found' | 'invalid_transition' };
+
+async function transitionCampaign(
+  campaignId: string,
+  toStatus: CampaignSummary['status'],
+  fromStatuses: CampaignSummary['status'][],
+): Promise<TransitionResult> {
+  const res = await query<{ status: CampaignSummary['status'] }>(
+    `UPDATE campaigns SET status = $2
+        WHERE id = $1 AND status = ANY($3::campaign_status[])
+      RETURNING status`,
+    [campaignId, toStatus, fromStatuses],
+  );
+  if (res.rows[0]) return { ok: true, status: res.rows[0].status };
+  const exists = await query('SELECT 1 FROM campaigns WHERE id = $1', [campaignId]);
+  return { ok: false, reason: exists.rows.length ? 'invalid_transition' : 'not_found' };
+}
+
+/** draft/paused -> live ("Start Session"). */
+export function startCampaignSession(campaignId: string): Promise<TransitionResult> {
+  return transitionCampaign(campaignId, 'live', ['draft', 'paused']);
+}
+
+/** live -> paused ("End Session"). */
+export function endCampaignSession(campaignId: string): Promise<TransitionResult> {
+  return transitionCampaign(campaignId, 'paused', ['live']);
+}
+
+/** any non-completed -> completed, terminal ("Mark Complete"). */
+export function completeCampaign(campaignId: string): Promise<TransitionResult> {
+  return transitionCampaign(campaignId, 'completed', ['draft', 'live', 'paused']);
+}
+
 /** Apply a single nested path update via jsonb_set (the sheet_update write). */
 export async function applySheetUpdate(
   sheetId: string,

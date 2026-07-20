@@ -350,6 +350,50 @@ apiRouter.get(
   }),
 );
 
+// ── campaign lifecycle (docs/12 §4) ────────────────────────────────────────
+
+apiRouter.post(
+  '/campaigns/:id/start',
+  requireAuth,
+  requireCampaignGm,
+  ah(async (req, res) => {
+    const r = await repo.startCampaignSession(req.params.id!);
+    if (!r.ok) {
+      res.status(r.reason === 'not_found' ? 404 : 409).json({ error: r.reason });
+      return;
+    }
+    res.json({ status: r.status });
+  }),
+);
+
+apiRouter.post(
+  '/campaigns/:id/end',
+  requireAuth,
+  requireCampaignGm,
+  ah(async (req, res) => {
+    const r = await repo.endCampaignSession(req.params.id!);
+    if (!r.ok) {
+      res.status(r.reason === 'not_found' ? 404 : 409).json({ error: r.reason });
+      return;
+    }
+    res.json({ status: r.status });
+  }),
+);
+
+apiRouter.post(
+  '/campaigns/:id/complete',
+  requireAuth,
+  requireCampaignGm,
+  ah(async (req, res) => {
+    const r = await repo.completeCampaign(req.params.id!);
+    if (!r.ok) {
+      res.status(r.reason === 'not_found' ? 404 : 409).json({ error: r.reason });
+      return;
+    }
+    res.json({ status: r.status });
+  }),
+);
+
 // ── maps / library (Phase 1a) ──────────────────────────────────────────────
 
 // GET /api/campaigns/:id/maps -> library list (members).
