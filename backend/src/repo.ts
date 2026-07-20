@@ -1,10 +1,12 @@
 // Data access layer: hand-written SQL mapped to the shared domain types.
+import { randomUUID } from 'node:crypto';
 import { query } from './db.js';
 import type {
   AuthUser,
   CampaignDetail,
   CampaignSummary,
   CellKey,
+  GameSummary,
   Grid,
   LiveMapEntry,
   MapSummary,
@@ -111,6 +113,67 @@ export async function touchSession(tokenHash: string): Promise<void> {
   await query('UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1', [tokenHash]);
 }
 
+// ── games (docs/12) ──────────────────────────────────────────────────────
+
+interface GameRow {
+  id: string;
+  name: string;
+  description: string | null;
+  join_code: string;
+  campaign_count: string;
+  member_count: string;
+}
+
+function toGameSummary(row: GameRow): GameSummary {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description ?? undefined,
+    campaignCount: Number(row.campaign_count),
+    memberCount: Number(row.member_count),
+    joinCode: row.join_code,
+  };
+}
+
+/** Create a Game, generating its standing-roster join code. */
+export async function createGame(
+  userId: string,
+  name: string,
+  description?: string,
+): Promise<GameSummary> {
+  const joinCode = randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
+  const res = await query<GameRow>(
+    `INSERT INTO games (gm_user_id, name, description, join_code)
+     VALUES ($1, $2, $3, $4)
+     RETURNING id, name, description, join_code, 0 AS campaign_count, 0 AS member_count`,
+    [userId, name, description ?? null, joinCode],
+  );
+  return toGameSummary(res.rows[0]!);
+}
+
+/** List every Game the user GMs (Player-facing "my Games" is out of scope, docs/12 §9). */
+export async function listGames(userId: string): Promise<GameSummary[]> {
+  const res = await query<GameRow>(
+    `SELECT g.id, g.name, g.description, g.join_code,
+            (SELECT count(*) FROM campaigns c WHERE c.game_id = g.id) AS campaign_count,
+            (SELECT count(*) FROM game_members gm WHERE gm.game_id = g.id) AS member_count
+       FROM games g
+      WHERE g.gm_user_id = $1
+      ORDER BY g.created_at`,
+    [userId],
+  );
+  return res.rows.map(toGameSummary);
+}
+
+/** Is this user the GM of this Game? (Game-keyed authz, mirrors isCampaignGm) */
+export async function isGameGm(gameId: string, userId: string): Promise<boolean> {
+  const res = await query('SELECT 1 FROM games WHERE id = $1 AND gm_user_id = $2', [
+    gameId,
+    userId,
+  ]);
+  return res.rows.length > 0;
+}
+
 // ── campaigns / membership ────────────────────────────────────────────────
 
 export async function listCampaigns(userId: string): Promise<CampaignSummary[]> {
@@ -121,8 +184,9 @@ export async function listCampaigns(userId: string): Promise<CampaignSummary[]> 
     member_count: string;
     is_member: boolean;
     is_gm: boolean;
+    status: CampaignSummary['status'];
   }>(
-    `SELECT c.id, c.name,
+    `SELECT c.id, c.name, c.status,
             gm.display_name AS gm_name,
             (SELECT count(*) FROM campaign_members m WHERE m.campaign_id = c.id) AS member_count,
             EXISTS(SELECT 1 FROM campaign_members m WHERE m.campaign_id = c.id AND m.user_id = $1) AS is_member,
@@ -138,24 +202,28 @@ export async function listCampaigns(userId: string): Promise<CampaignSummary[]> 
     memberCount: Number(r.member_count),
     isMember: r.is_member,
     isGm: r.is_gm,
+    status: r.status,
   }));
 }
 
-/** Insert the campaign and the creator's GM member row atomically (CTE). */
+/** Insert the campaign (under a required Game) and the creator's GM member
+ *  row atomically (CTE). docs/12 §5: templateIds/memberUserIds are added
+ *  additively by later tasks (copy-on-assign maps, roster subset). */
 export async function createCampaign(
   userId: string,
+  gameId: string,
   name: string,
   joinCode: string | null,
 ): Promise<CampaignDetail> {
   const res = await query<{ id: string }>(
     `WITH c AS (
-       INSERT INTO campaigns (name, gm_user_id, join_code)
-       VALUES ($1, $2, $3) RETURNING id, gm_user_id
+       INSERT INTO campaigns (name, gm_user_id, join_code, game_id)
+       VALUES ($1, $2, $3, $4) RETURNING id, gm_user_id
      ), m AS (
        INSERT INTO campaign_members (campaign_id, user_id) SELECT id, gm_user_id FROM c
      )
      SELECT id FROM c`,
-    [name, userId, joinCode],
+    [name, userId, joinCode, gameId],
   );
   // Creator is the GM, so they're the viewer for the detail returned here.
   return (await getCampaignDetail(res.rows[0]!.id, userId))!;
@@ -193,8 +261,8 @@ export async function getCampaignDetail(
   campaignId: string,
   viewerUserId: string,
 ): Promise<CampaignDetail | null> {
-  const c = await query<{ id: string; name: string; gm_user_id: string }>(
-    'SELECT id, name, gm_user_id FROM campaigns WHERE id = $1',
+  const c = await query<{ id: string; name: string; gm_user_id: string; status: CampaignSummary['status'] }>(
+    'SELECT id, name, gm_user_id, status FROM campaigns WHERE id = $1',
     [campaignId],
   );
   const row = c.rows[0];
@@ -235,6 +303,7 @@ export async function getCampaignDetail(
     id: row.id,
     name: row.name,
     gmUserId: row.gm_user_id,
+    status: row.status,
     members: m.rows.map((r) => ({ id: r.id, displayName: r.display_name, isGm: r.is_gm })),
     liveMaps,
     viewerMapId,

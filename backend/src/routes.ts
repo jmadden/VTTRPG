@@ -132,6 +132,32 @@ apiRouter.get(
   }),
 );
 
+// ── games (docs/12) ────────────────────────────────────────────────────────
+
+// POST /api/games -> 201 Game summary. Caller becomes GM.
+apiRouter.post(
+  '/games',
+  requireAuth,
+  ah(async (req, res) => {
+    const { name, description } = req.body ?? {};
+    if (typeof name !== 'string' || name.trim().length < 1 || name.trim().length > 80) {
+      res.status(400).json({ error: 'invalid_name' });
+      return;
+    }
+    const desc = typeof description === 'string' && description.trim() ? description.trim() : undefined;
+    res.status(201).json(await repo.createGame(req.userId!, name.trim(), desc));
+  }),
+);
+
+// GET /api/games -> Games the caller GMs.
+apiRouter.get(
+  '/games',
+  requireAuth,
+  ah(async (req, res) => {
+    res.json(await repo.listGames(req.userId!));
+  }),
+);
+
 // GET /api/campaigns -> lobby list.
 apiRouter.get(
   '/campaigns',
@@ -141,18 +167,27 @@ apiRouter.get(
   }),
 );
 
-// POST /api/campaigns -> 201 campaign detail. Caller becomes GM.
+// POST /api/campaigns -> 201 campaign detail. Requires an existing Game the
+// caller GMs (docs/12 §2: a campaign always lives inside a Game).
 apiRouter.post(
   '/campaigns',
   requireAuth,
   ah(async (req, res) => {
-    const { name, joinCode } = req.body ?? {};
+    const { gameId, name, joinCode } = req.body ?? {};
+    if (typeof gameId !== 'string' || gameId.trim().length < 1) {
+      res.status(400).json({ error: 'invalid_game' });
+      return;
+    }
     if (typeof name !== 'string' || name.trim().length < 1 || name.trim().length > 80) {
       res.status(400).json({ error: 'invalid_name' });
       return;
     }
+    if (!(await repo.isGameGm(gameId, req.userId!))) {
+      res.status(403).json({ error: 'not_game_gm' });
+      return;
+    }
     const code = typeof joinCode === 'string' && joinCode.trim() ? joinCode.trim() : null;
-    res.status(201).json(await repo.createCampaign(req.userId!, name.trim(), code));
+    res.status(201).json(await repo.createCampaign(req.userId!, gameId, name.trim(), code));
   }),
 );
 

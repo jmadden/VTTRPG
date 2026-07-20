@@ -44,10 +44,18 @@ async function uploadMap(campaignId: string, token: string, name: string): Promi
   return ((await r.json()) as { id: string }).id;
 }
 async function createCampaign(token: string, name: string): Promise<{ id: string }> {
+  // docs/12: a campaign always belongs to a Game; mint a throwaway one here
+  // since this file's helper only needs a second, isolated campaign.
+  const game = await fetch(`${BACKEND_URL}/api/games`, {
+    method: 'POST',
+    headers: { ...authH(token), 'content-type': 'application/json' },
+    body: JSON.stringify({ name: `${name} Game` }),
+  });
+  const { id: gameId } = (await game.json()) as { id: string };
   const r = await fetch(`${BACKEND_URL}/api/campaigns`, {
     method: 'POST',
     headers: { ...authH(token), 'content-type': 'application/json' },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ gameId, name }),
   });
   return (await r.json()) as { id: string };
 }

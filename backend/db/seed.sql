@@ -10,11 +10,20 @@ INSERT INTO users (id, display_name, pin_hash) VALUES
   ('22222222-2222-2222-2222-222222222222', 'Player One',  crypt('4321', gen_salt('bf', 10)))
 ON CONFLICT (id) DO NOTHING;
 
+-- docs/12: every campaign belongs to a Game. The demo campaign gets its own
+-- Game-of-one, wrapping it the same way the deployed-instance migration
+-- (backend/db/migrate-games-hierarchy.sql) wraps pre-existing campaigns.
+INSERT INTO games (id, gm_user_id, name, join_code) VALUES
+  ('88888888-8888-8888-8888-888888888888',
+   '11111111-1111-1111-1111-111111111111', 'Demo Campaign', 'GAMEDEMO')
+ON CONFLICT (id) DO NOTHING;
+
 -- join_code gates open join over a public URL. active_map_id is set after the
 -- map is inserted (below).
-INSERT INTO campaigns (id, name, gm_user_id, join_code) VALUES
+INSERT INTO campaigns (id, name, gm_user_id, game_id, join_code) VALUES
   ('33333333-3333-3333-3333-333333333333', 'Demo Campaign',
-   '11111111-1111-1111-1111-111111111111', 'DEMO42')
+   '11111111-1111-1111-1111-111111111111',
+   '88888888-8888-8888-8888-888888888888', 'DEMO42')
 ON CONFLICT (id) DO NOTHING;
 
 -- Square grid, 70px cells, 16 x 12. A small revealed region in the top-left.
@@ -49,6 +58,11 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO campaign_members (campaign_id, user_id) VALUES
   ('33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111'),
   ('33333333-3333-3333-3333-333333333333', '22222222-2222-2222-2222-222222222222')
+ON CONFLICT DO NOTHING;
+
+-- Player One is also on the Demo Game's standing roster (docs/12 §5).
+INSERT INTO game_members (game_id, user_id) VALUES
+  ('88888888-8888-8888-8888-888888888888', '22222222-2222-2222-2222-222222222222')
 ON CONFLICT DO NOTHING;
 
 -- Demo map is a live tab (gm-maps-1b): without this the seeded GM lands on an
