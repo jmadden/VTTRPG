@@ -19,11 +19,14 @@ INSERT INTO games (id, gm_user_id, name, join_code) VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- join_code gates open join over a public URL. active_map_id is set after the
--- map is inserted (below).
-INSERT INTO campaigns (id, name, gm_user_id, game_id, join_code) VALUES
+-- map is inserted (below). status = 'live' since this fixture represents an
+-- already-running demo session (docs/12 §4) -- the committed e2e suite (and
+-- the GM's own first "Enter" click) expects it immediately playable, not
+-- sitting behind a manual Start Session click.
+INSERT INTO campaigns (id, name, gm_user_id, game_id, join_code, status) VALUES
   ('33333333-3333-3333-3333-333333333333', 'Demo Campaign',
    '11111111-1111-1111-1111-111111111111',
-   '88888888-8888-8888-8888-888888888888', 'DEMO42')
+   '88888888-8888-8888-8888-888888888888', 'DEMO42', 'live')
 ON CONFLICT (id) DO NOTHING;
 
 -- Square grid, 70px cells, 16 x 12. A small revealed region in the top-left.

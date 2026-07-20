@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getRouteApi } from '@tanstack/react-router';
 import { GameCampaignsTab } from './GameCampaignsTab';
 import { GameMapLibraryTab } from './GameMapLibraryTab';
@@ -18,6 +18,14 @@ export function GamePage() {
   async function refresh() {
     setGame(await api.getGame(game.id));
   }
+
+  // The parent gameRoute's loader data can be stale by the time this mounts
+  // (e.g. returning from Create Campaign) -- always refetch on mount rather
+  // than trusting the loader snapshot, same pattern as Lobby.tsx/LobbyHome.tsx.
+  useEffect(() => {
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loader.game.id]);
 
   return (
     <div style={{ width: 760, maxWidth: '92vw', margin: '40px auto' }}>

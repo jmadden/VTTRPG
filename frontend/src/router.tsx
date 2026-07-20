@@ -61,10 +61,19 @@ const lobbyHomeRoute = createRoute({
   component: LobbyHome,
 });
 
+// A layout route: loads the Game once and renders whichever child matches
+// (the tabs view by default, or Create Campaign) via Outlet. Mirrors the
+// lobbyRoute/lobbyHomeRoute shell pattern above.
 const gameRoute = createRoute({
   getParentRoute: () => lobbyRoute,
   path: '/game/$gameId',
   loader: async ({ params }) => ({ game: await api.getGame(params.gameId) }),
+  component: () => <Outlet />,
+});
+
+const gameIndexRoute = createRoute({
+  getParentRoute: () => gameRoute,
+  path: '/',
   component: GamePage,
 });
 
@@ -108,7 +117,7 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   indexRoute,
   authedRoute.addChildren([
-    lobbyRoute.addChildren([lobbyHomeRoute, gameRoute.addChildren([createCampaignRoute])]),
+    lobbyRoute.addChildren([lobbyHomeRoute, gameRoute.addChildren([gameIndexRoute, createCampaignRoute])]),
     campaignRoute,
     manageRoute,
   ]),

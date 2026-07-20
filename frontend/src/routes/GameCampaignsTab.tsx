@@ -88,7 +88,11 @@ export function GameCampaignsTab({ game, onRefresh }: { game: GameDetail; onRefr
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
         {visible.map((c) => (
-          <div key={c.id} style={{ padding: 14, background: '#14141f', border: '1px solid #2a2a3a', borderRadius: 10 }}>
+          <div
+            key={c.id}
+            data-testid={`campaign-${c.id}`}
+            style={{ padding: 14, background: '#14141f', border: '1px solid #2a2a3a', borderRadius: 10 }}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div style={{ fontWeight: 600 }}>{c.name}</div>
               <span style={statusBadge(c.status)}>{c.status}</span>

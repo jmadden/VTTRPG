@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { getRouteApi, useNavigate } from '@tanstack/react-router';
+import { getRouteApi, useNavigate, useRouter } from '@tanstack/react-router';
 import { api, ApiError } from '../api';
 import { chip, field, ghostBtn, primaryBtn } from './ui';
 
@@ -8,6 +8,7 @@ const gameRouteApi = getRouteApi('/authed/lobby/game/$gameId');
 export function CreateCampaignPage() {
   const { game } = gameRouteApi.useLoaderData();
   const navigate = useNavigate();
+  const router = useRouter();
   const [name, setName] = useState('');
   const [templateIds, setTemplateIds] = useState<Set<string>>(new Set());
   const [memberIds, setMemberIds] = useState<Set<string>>(new Set());
@@ -35,6 +36,10 @@ export function CreateCampaignPage() {
         templateIds: [...templateIds],
         memberUserIds: [...memberIds],
       });
+      // The parent gameRoute's loader data (game.campaigns) was fetched
+      // before this campaign existed -- invalidate so GamePage remounts
+      // with the fresh list instead of the stale empty one.
+      await router.invalidate();
       void navigate({ to: '/lobby/game/$gameId', params: { gameId: game.id } });
     } catch (e) {
       setError(e instanceof ApiError ? `Could not create campaign (${e.message})` : 'Could not create campaign.');
