@@ -24,6 +24,10 @@ DO $$ BEGIN
   CREATE TYPE token_type AS ENUM ('player', 'monster', 'prop');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$ BEGIN
+  CREATE TYPE campaign_status AS ENUM ('draft', 'live', 'paused', 'completed');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
 -- ── users ─────────────────────────────────────────────────────────────────
 -- Login by display name (case-insensitive unique) + a bcrypt-hashed PIN.
 CREATE TABLE IF NOT EXISTS users (
@@ -47,19 +51,39 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 
+-- ── games (docs/12) ───────────────────────────────────────────────────────
+-- Sits above campaigns: a reusable ruleset/setting owning a Map Library
+-- (map_templates) and a standing player roster (game_members). A campaign is
+-- required to belong to exactly one Game. `join_code` gates the standing
+-- roster join, separate from each campaign's own join_code below.
+CREATE TABLE IF NOT EXISTS games (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  gm_user_id  UUID        NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  name        TEXT        NOT NULL,
+  description TEXT,
+  join_code   TEXT        NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_games_gm ON games(gm_user_id);
+
 -- ── campaigns ───────────────────────────────────────────────────────────────
 -- `join_code` (nullable) gates open join over a public URL. Which maps are
 -- "live" right now lives in campaign_live_maps below, not on this row — see
--- the gm-maps-1b design note there.
+-- the gm-maps-1b design note there. `status` is the docs/12 lifecycle
+-- (draft/live/paused/completed), manually toggled by the GM.
 CREATE TABLE IF NOT EXISTS campaigns (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name       TEXT        NOT NULL,
   gm_user_id UUID        NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  game_id    UUID        NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  status     campaign_status NOT NULL DEFAULT 'draft',
   join_code  TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_campaigns_gm ON campaigns(gm_user_id);
+CREATE INDEX IF NOT EXISTS idx_campaigns_game ON campaigns(game_id);
 
 -- ── campaign_members ──────────────────────────────────────────────────────
 -- Explicit membership. The GM gets a row too (inserted at campaign creation),
@@ -91,13 +115,47 @@ CREATE INDEX IF NOT EXISTS idx_sheets_owner    ON character_sheets(owner_user_id
 -- GIN index enables efficient queries into arbitrary system_data paths.
 CREATE INDEX IF NOT EXISTS idx_sheets_system_data ON character_sheets USING GIN (system_data);
 
+-- ── map_templates (docs/12) ───────────────────────────────────────────────
+-- A Game's reusable Map Library. Never played on directly — no revealed_tiles,
+-- no tokens. Assigning one to a campaign COPIES it into a fresh game_maps row
+-- (see game_maps.template_id below); the template itself never changes after
+-- that copy, since fog-of-war/tokens are inherently per-playthrough state.
+CREATE TABLE IF NOT EXISTS map_templates (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id    UUID        NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  name       TEXT        NOT NULL,
+  asset_path TEXT        NOT NULL,
+  grid_type  grid_type   NOT NULL DEFAULT 'square',
+  grid_size  INTEGER     NOT NULL DEFAULT 70,
+  cols       INTEGER     NOT NULL DEFAULT 0,
+  rows       INTEGER     NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_map_templates_game ON map_templates(game_id);
+
+-- ── game_members (docs/12) ────────────────────────────────────────────────
+-- A Game's standing roster: players join once (via games.join_code) and keep
+-- their persistent character sheet reference here across whichever of the
+-- Game's campaigns they're actively playing in.
+CREATE TABLE IF NOT EXISTS game_members (
+  game_id            UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  character_sheet_id UUID REFERENCES character_sheets(id) ON DELETE SET NULL,
+  joined_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (game_id, user_id)
+);
+
 -- ── game_maps ─────────────────────────────────────────────────────────────
 -- `revealed_tiles` is a JSONB array of canonical cell keys, e.g. ["3,4","3,5"].
 -- Square keys are "col,row"; hex keys are axial "q,r". It is MAP-LEVEL:
 -- fog is identical for all players, so the only visibility split is GM vs players.
+-- `template_id` (docs/12) traces a copy-on-assign map back to its Map Library
+-- template, purely for reference — no sync back, edits after copy diverge.
 CREATE TABLE IF NOT EXISTS game_maps (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   campaign_id    UUID        NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  template_id    UUID        REFERENCES map_templates(id) ON DELETE SET NULL,
   name           TEXT        NOT NULL,
   asset_path     TEXT        NOT NULL,              -- path/URL to the map image
   grid_type      grid_type   NOT NULL DEFAULT 'square',
