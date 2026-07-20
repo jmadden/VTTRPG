@@ -8,6 +8,9 @@ import {
 import { MapView } from './routes/MapView';
 import { Login } from './routes/Login';
 import { Lobby } from './routes/Lobby';
+import { LobbyHome } from './routes/LobbyHome';
+import { GamePage } from './routes/GamePage';
+import { CreateCampaignPage } from './routes/CreateCampaignPage';
 import { MapsManager } from './routes/MapsManager';
 import { api } from './api';
 import { state } from './store';
@@ -42,10 +45,33 @@ const authedRoute = createRoute({
   component: () => <Outlet />,
 });
 
+// docs/12: persistent sidebar shell listing the GM's Games. Its default
+// child (lobbyHomeRoute) is the pre-existing flat "your campaigns as a
+// player" view (docs/12 §2: unaffected) -- selecting a Game in the sidebar
+// swaps this area for that Game's own tabs (gameRoute -> GamePage).
 const lobbyRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: '/lobby',
   component: Lobby,
+});
+
+const lobbyHomeRoute = createRoute({
+  getParentRoute: () => lobbyRoute,
+  path: '/',
+  component: LobbyHome,
+});
+
+const gameRoute = createRoute({
+  getParentRoute: () => lobbyRoute,
+  path: '/game/$gameId',
+  loader: async ({ params }) => ({ game: await api.getGame(params.gameId) }),
+  component: GamePage,
+});
+
+const createCampaignRoute = createRoute({
+  getParentRoute: () => gameRoute,
+  path: '/campaigns/new',
+  component: CreateCampaignPage,
 });
 
 const campaignRoute = createRoute({
@@ -81,7 +107,11 @@ const manageRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   indexRoute,
-  authedRoute.addChildren([lobbyRoute, campaignRoute, manageRoute]),
+  authedRoute.addChildren([
+    lobbyRoute.addChildren([lobbyHomeRoute, gameRoute.addChildren([createCampaignRoute])]),
+    campaignRoute,
+    manageRoute,
+  ]),
 ]);
 
 export const router = createRouter({ routeTree });

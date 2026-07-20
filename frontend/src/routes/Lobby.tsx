@@ -1,57 +1,42 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
-import type { CampaignSummary } from '@vtt/shared';
+import { Outlet, useNavigate } from '@tanstack/react-router';
+import type { GameSummary } from '@vtt/shared';
 import { api, ApiError, clearToken } from '../api';
 import { clearSession, state } from '../store';
-import { field, ghostBtn, linkBtn, panel, primaryBtn } from './ui';
+import { field, ghostBtn, linkBtn, primaryBtn, surface } from './ui';
 
 export function Lobby() {
   const navigate = useNavigate();
-  const [camps, setCamps] = useState<CampaignSummary[]>([]);
+  const [games, setGames] = useState<GameSummary[]>([]);
   const [newName, setNewName] = useState('');
-  const [codes, setCodes] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   async function refresh() {
     try {
-      setCamps(await api.listCampaigns());
+      setGames(await api.listGames());
     } catch {
-      setError('Could not load campaigns.');
+      setError('Could not load your Games.');
     }
   }
   useEffect(() => {
     void refresh();
   }, []);
 
-  async function create() {
+  async function createGame() {
     if (!newName.trim()) return;
-    try {
-      await api.createCampaign(newName.trim());
-      setNewName('');
-      await refresh();
-    } catch {
-      setError('Could not create campaign.');
-    }
-  }
-
-  async function join(c: CampaignSummary) {
+    setBusy(true);
     setError(null);
     try {
-      await api.joinCampaign(c.id, codes[c.id]);
+      const game = await api.createGame(newName.trim());
+      setNewName('');
       await refresh();
+      void navigate({ to: '/lobby/game/$gameId', params: { gameId: game.id } });
     } catch (e) {
-      setError(
-        e instanceof ApiError && e.message === 'bad_code' ? 'Wrong join code.' : 'Could not join.',
-      );
+      setError(e instanceof ApiError ? `Could not create Game (${e.message})` : 'Could not create Game.');
+    } finally {
+      setBusy(false);
     }
-  }
-
-  function enter(c: CampaignSummary) {
-    void navigate({ to: '/campaign/$campaignId', params: { campaignId: c.id } });
-  }
-
-  function manage(c: CampaignSummary) {
-    void navigate({ to: '/campaign/$campaignId/manage', params: { campaignId: c.id } });
   }
 
   async function logout() {
@@ -66,87 +51,70 @@ export function Lobby() {
   }
 
   return (
-    <div style={{ ...panel, alignItems: 'flex-start', overflow: 'auto' }}>
-      <div style={{ width: 480, maxWidth: '90vw', margin: '40px auto' }}>
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        display: 'flex',
+        background: '#0a0a0f',
+        color: '#e5e7eb',
+        fontFamily: 'system-ui, sans-serif',
+      }}
+    >
+      <div
+        style={{
+          ...surface,
+          width: 260,
+          flexShrink: 0,
+          margin: 16,
+          padding: 16,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+          overflow: 'auto',
+        }}
+      >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: 20, fontWeight: 700 }}>Campaigns</div>
-          <div style={{ opacity: 0.8, fontSize: 13 }}>
-            {state.session?.user.displayName}{' '}
-            <button style={linkBtn} onClick={logout}>
-              log out
+          <div style={{ fontSize: 13, fontWeight: 700 }}>Your Games</div>
+          <button style={linkBtn} onClick={logout}>
+            log out
+          </button>
+        </div>
+        <div style={{ opacity: 0.6, fontSize: 12 }}>{state.session?.user.displayName}</div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {games.map((g) => (
+            <button
+              key={g.id}
+              style={{ ...ghostBtn, textAlign: 'left', width: '100%' }}
+              onClick={() => void navigate({ to: '/lobby/game/$gameId', params: { gameId: g.id } })}
+            >
+              {g.name}
+              <div style={{ opacity: 0.6, fontSize: 11 }}>
+                {g.campaignCount} campaign{g.campaignCount === 1 ? '' : 's'} · {g.memberCount} member
+                {g.memberCount === 1 ? '' : 's'}
+              </div>
             </button>
-          </div>
+          ))}
+          {games.length === 0 && <div style={{ opacity: 0.5, fontSize: 12 }}>No Games yet.</div>}
         </div>
 
-        <div style={{ display: 'flex', gap: 8, margin: '16px 0' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 'auto' }}>
           <input
-            style={{ ...field, flex: 1 }}
-            placeholder="New campaign name"
+            style={field}
+            placeholder="New Game name"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
           />
-          <button style={primaryBtn} onClick={create}>
-            Create (you GM)
+          <button style={primaryBtn} onClick={createGame} disabled={busy}>
+            {busy ? '…' : '+ New Game'}
           </button>
+          {error && <div style={{ color: '#f87171', fontSize: 12 }}>{error}</div>}
         </div>
+      </div>
 
-        {error && <div style={{ color: '#f87171', fontSize: 13, marginBottom: 8 }}>{error}</div>}
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {camps.map((c) => (
-            <div
-              key={c.id}
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: 10,
-                padding: 12,
-                background: '#14141f',
-                border: '1px solid #2a2a3a',
-                borderRadius: 10,
-              }}
-            >
-              <div>
-                <div style={{ fontWeight: 600 }}>
-                  {c.name} {c.isGm && <span style={{ opacity: 0.6, fontSize: 12 }}>(you GM)</span>}
-                </div>
-                <div style={{ opacity: 0.6, fontSize: 12 }}>
-                  GM {c.gmName} · {c.memberCount} member{c.memberCount === 1 ? '' : 's'}
-                </div>
-              </div>
-              {c.isGm ? (
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button style={ghostBtn} onClick={() => manage(c)}>
-                    Manage
-                  </button>
-                  <button style={primaryBtn} onClick={() => enter(c)}>
-                    Enter
-                  </button>
-                </div>
-              ) : c.isMember ? (
-                <button style={primaryBtn} onClick={() => enter(c)}>
-                  Enter
-                </button>
-              ) : (
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <input
-                    style={{ ...field, width: 110 }}
-                    placeholder="join code"
-                    value={codes[c.id] ?? ''}
-                    onChange={(e) => setCodes((m) => ({ ...m, [c.id]: e.target.value }))}
-                  />
-                  <button style={ghostBtn} onClick={() => join(c)}>
-                    Join
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
-          {camps.length === 0 && (
-            <div style={{ opacity: 0.5, fontSize: 13 }}>No campaigns yet. Create one above.</div>
-          )}
-        </div>
+      <div style={{ flex: 1, overflow: 'auto', display: 'flex', justifyContent: 'center' }}>
+        <Outlet />
       </div>
     </div>
   );
