@@ -92,7 +92,9 @@ test('GM relocates a player across live tabs; the player updates without reloadi
     gmContext = await browser.newContext();
     const gmPage = await gmContext.newPage();
     await login(gmPage, 'Game Master', '1234');
-    await gmPage.getByRole('button', { name: 'Enter' }).first().click();
+    await gmPage.getByText('Demo Campaign').first().click();
+    await gmPage.waitForURL('**/lobby/game/**');
+    await gmPage.getByRole('button', { name: 'Enter' }).click();
     await gmPage.waitForSelector('canvas');
 
     // Upload a second map straight into the live set via the in-game drawer.

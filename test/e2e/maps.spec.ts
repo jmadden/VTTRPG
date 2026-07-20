@@ -11,24 +11,42 @@ const PNG = Buffer.from(
   'base64',
 );
 
-async function loginGM(page: Page): Promise<void> {
+async function loginGM(page: Page): Promise<{ token: string }> {
   await page.goto('/login');
   await page.getByPlaceholder('Display name').fill('Game Master');
   await page.getByPlaceholder('PIN (4-6 digits)').fill('1234');
+  const loggedIn = page.waitForResponse(
+    (r) => r.url().endsWith('/api/login') && r.request().method() === 'POST',
+  );
   await page.getByRole('button', { name: 'Sign in' }).click();
+  const { token } = (await (await loggedIn).json()) as { token: string };
   await page.waitForURL('**/lobby');
+  return { token };
 }
 
+const BACKEND_URL = 'http://localhost:4000';
+
 test('GM creates a campaign, uploads a map, enters, and adds it as a live tab', async ({ page }) => {
-  await loginGM(page);
+  const { token } = await loginGM(page);
 
-  // Create a fresh campaign (the GM owns it); it becomes the newest card.
-  await page.getByPlaceholder('New campaign name').fill('E2E Maps Campaign');
-  await page.getByRole('button', { name: /Create/ }).click();
-  await expect(page.getByText('E2E Maps Campaign')).toBeVisible();
+  // docs/12: campaign creation now lives inside a Game, and the single-page
+  // Create Campaign form doesn't land until Phase 5 -- create the Game +
+  // Campaign directly via the API (this test is about the map/tab flow
+  // inside a campaign, not about the Games-creation UI itself), then
+  // navigate straight to Manage.
+  const authH = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+  const gameRes = await page.request.post(`${BACKEND_URL}/api/games`, {
+    headers: authH,
+    data: JSON.stringify({ name: 'E2E Maps Game' }),
+  });
+  const { id: gameId } = (await gameRes.json()) as { id: string };
+  const campRes = await page.request.post(`${BACKEND_URL}/api/campaigns`, {
+    headers: authH,
+    data: JSON.stringify({ gameId, name: 'E2E Maps Campaign' }),
+  });
+  const { id: campaignId } = (await campRes.json()) as { id: string };
 
-  // Newest GM campaign -> its Manage is the last one.
-  await page.getByRole('button', { name: 'Manage' }).last().click();
+  await page.goto(`/campaign/${campaignId}/manage`);
   await page.waitForURL('**/manage');
 
   // Empty library -> upload one map (library CRUD only; no live-tab concept here).
