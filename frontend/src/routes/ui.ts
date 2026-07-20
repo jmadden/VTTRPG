@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import type { CampaignStatus } from '@vtt/shared';
 
 export const panel: CSSProperties = {
   position: 'fixed',
@@ -107,6 +108,28 @@ export const gmToggle = (active: boolean): CSSProperties => ({
   fontSize: 12,
   fontWeight: active ? 600 : 400,
   whiteSpace: 'nowrap',
+});
+
+// docs/12 §5: color-coded status badges on the Campaigns tab's cards. `paused`
+// reuses accentGm (GM-authority amber) since a paused campaign is exactly the
+// "needs GM attention to resume" state that color already represents.
+export const statusColors: Record<CampaignStatus, string> = {
+  draft: '#9ca3af',
+  live: '#4ade80',
+  paused: accentGm,
+  completed: '#60a5fa',
+};
+
+export const statusBadge = (status: CampaignStatus): CSSProperties => ({
+  display: 'inline-block',
+  padding: '2px 8px',
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+  color: '#08130a',
+  background: statusColors[status],
 });
 
 // A live-map tab: underline indicator rather than a filled pill, so tabs read
