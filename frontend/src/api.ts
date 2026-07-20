@@ -5,6 +5,9 @@ import type {
   AuthUser,
   CampaignDetail,
   CampaignSummary,
+  CreateCampaignRequest,
+  GameDetail,
+  GameSummary,
   MapSummary,
 } from '@vtt/shared';
 
@@ -74,12 +77,13 @@ export const api = {
     }),
   logout: () => req<void>('/api/logout', { method: 'POST' }),
   me: () => req<{ user: AuthUser }>('/api/me'),
+  listGames: () => req<GameSummary[]>('/api/games'),
+  createGame: (name: string, description?: string) =>
+    req<GameSummary>('/api/games', { method: 'POST', body: JSON.stringify({ name, description }) }),
+  getGame: (gameId: string) => req<GameDetail>(`/api/games/${gameId}`),
   listCampaigns: () => req<CampaignSummary[]>('/api/campaigns'),
-  createCampaign: (name: string, joinCode?: string) =>
-    req<CampaignDetail>('/api/campaigns', {
-      method: 'POST',
-      body: JSON.stringify({ name, joinCode }),
-    }),
+  createCampaign: (body: CreateCampaignRequest) =>
+    req<CampaignDetail>('/api/campaigns', { method: 'POST', body: JSON.stringify(body) }),
   joinCampaign: (id: string, joinCode?: string) =>
     req<CampaignDetail>(`/api/campaigns/${id}/join`, {
       method: 'POST',
