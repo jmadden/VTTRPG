@@ -2,7 +2,7 @@
 
 Read this first if you are a new AI instance picking up this project. It is the
 fastest path to being productive without re-deriving context. Last updated
-2026-07-14.
+2026-07-19.
 
 ## What this is
 
@@ -27,8 +27,10 @@ contract.
 
 **Status: working end to end, well past scaffold.** Login/identity, the
 anti-cheat pipeline, fog of war (reveal + conceal), token dragging, real map
-image upload/rendering, and a full GM toolkit Phase 1 (multi-map live tabs,
-cross-map token relocation, a redesigned GM toolbar) are implemented and
+image upload/rendering, a full GM toolkit Phase 1 (multi-map live tabs,
+cross-map token relocation, a redesigned GM toolbar), and a **Games hierarchy
+above Campaigns** (docs/12: reusable Map Library, standing player roster,
+explicit campaign lifecycle, a Games sidebar Lobby) are implemented and
 verified against a live database, a committed automated test suite, and real
 browser sessions. See "Done vs not done" below for what's still open.
 
@@ -52,6 +54,14 @@ browser sessions. See "Done vs not done" below for what's still open.
   (multi-map tabs, token relocation); phases 2-5 (monsters, per-audience fog,
   session tools, map builder) are design-only. Read this before extending the
   GM-facing feature set.
+- `docs/12-gm-lobby-hierarchy.md` - the Games-above-Campaigns design. **Built
+  in full this session** (schema, Games CRUD, Map Library, Roster, campaign
+  lifecycle, Lobby sidebar shell). §9 lists what's explicitly deferred
+  (Player-facing dashboard, "rules/resources" content, presence-inferred
+  live status) — read that before assuming any of those exist.
+- `docs/superpowers/plans/2026-07-18-gm-lobby-hierarchy.md` - the 27-task
+  implementation plan docs/12 was built from, if you need the exact
+  task-by-task history/rationale rather than just the end state.
 - `shared/src/contracts.ts` / `shared/src/api.ts` - the authoritative wire
   types (sockets and REST respectively). If you change the wire protocol,
   change it here first; both ends fail to compile until they agree.
@@ -120,9 +130,22 @@ Implemented and verified:
   via `npm test` on a `vtt_test` DB (doc 06). CI wiring is still the
   remaining follow-up (no `.github/workflows` yet).
 - **Docker deployment** (docs/10): one image, three modes (local, self-host +
-  tunnel, DigitalOcean/Caddy) — verified locally this session (containers
-  build and run healthy, full login->map->tabs flow drives correctly against
-  the containerized DB).
+  tunnel, DigitalOcean/Caddy) — verified locally (containers build and run
+  healthy, full login->map->tabs flow drives correctly against the
+  containerized DB).
+- **Games hierarchy** (docs/12, built this session): `games` sits above
+  `campaigns` — every campaign now requires a `game_id`. A Game owns a
+  reusable **Map Library** (`map_templates`, Game-scoped; assigning one to a
+  campaign copies it into a fresh `game_maps` row — never a shared
+  reference, since fog/tokens are inherently per-playthrough) and a
+  **standing roster** (`game_members`, joined via the Game's own
+  `join_code`, with character-sheet attach). Campaigns have an explicit
+  lifecycle (`draft`/`live`/`paused`/`completed`), moved only by an
+  explicit GM action (Start Session/End Session/Mark Complete) — never
+  inferred from socket presence. The Lobby is now a persistent Games
+  sidebar; each Game has Campaigns/Map Library/Roster tabs; Create Campaign
+  is a single page with template/roster multi-select. Multiple campaigns
+  can run concurrently under one Game.
 
 Not done (see docs/07 for the full live list; highlights):
 - **docs/11 Phases 2-5**: token/monster CRUD (spawn, HP/conditions,
@@ -139,6 +162,23 @@ Not done (see docs/07 for the full live list; highlights):
 - No pan/zoom camera.
 - Player presence indicator (who else is connected) — no `member_joined`
   broadcast exists.
+- **Player-facing Games/Campaigns dashboard** (docs/12 §9, explicitly
+  deferred): players still only see the flat `LobbyHome` campaign list they
+  had before — no "which Games am I in," no jumping straight to whichever of
+  a Game's campaigns is currently `live`, no player-facing character-sheet
+  management outside a live campaign. The `status` field and Game-level
+  roster are already designed to support this without backend rework; only
+  the UI itself is unbuilt.
+- **"Rules/resources" as a Game-level content type** (docs/12 §9, deferred):
+  no NPC library, freeform notes, or item/loot tables. Deliberately cut from
+  v1 scope; no design exists yet either.
+- **Presence-inferred live status** (docs/12 §9, deferred): the manual GM
+  toggle is the only way `campaigns.status` moves. Revisit only if that
+  proves to be real friction in practice.
+- **Character continuity across campaigns under the same Game** (docs/12
+  §9): `game_members.character_sheet_id` is a hook for this (e.g. carrying
+  XP from a completed campaign into a new one) but no reconciliation logic
+  exists.
 
 ## Locked decisions (do not relitigate without reason)
 
@@ -164,6 +204,24 @@ Not done (see docs/07 for the full live list; highlights):
 - **`GET /api/campaigns/:id` no longer returns `activeMapId`** — it returns
   `liveMaps`/`viewerMapId`/`memberTokens` (docs/11). If you see `activeMapId`
   referenced anywhere (old branches, stale notes), it's dead.
+- **Every campaign requires a Game** (`campaigns.game_id NOT NULL`, docs/12)
+  — there is no standalone/game-less campaign path. `POST /api/campaigns`
+  requires `gameId` in the body (`CreateCampaignRequest`); the old
+  `api.createCampaign(name, joinCode?)` two-arg client signature is gone,
+  replaced by a single request-object param.
+- **Map templates are copy-on-assign, never a shared reference** (docs/12) —
+  `map_templates` (Game-scoped) hold only the reusable asset (image + grid
+  config); assigning one to a campaign copies it into a fresh `game_maps`
+  row (`template_id` traces back to the template for reference only, no
+  sync). Never make two campaigns point at the same `game_maps` row or let a
+  campaign reference a `map_templates` row directly — fog/tokens are
+  inherently per-playthrough state.
+- **Campaign lifecycle is a manual GM toggle, not presence-inferred**
+  (docs/12 §4) — `campaigns.status` (`draft`/`live`/`paused`/`completed`)
+  moves only via explicit Start Session/End Session/Mark Complete actions.
+  Chosen specifically to avoid a dropped-wifi GM reconnect flickering the
+  status; don't switch this to socket-presence-based inference without a
+  real reason to revisit docs/12 §9.
 
 ## Gotchas that will bite you (hard-won)
 
@@ -207,6 +265,32 @@ Not done (see docs/07 for the full live list; highlights):
   `/assets/demo-map.png` but that file was never actually shipped anywhere
   (repo or `uploads/`). Harmless — grid/tokens/fog all work — but don't be
   surprised by the broken-image icon; it's a known, low-priority gap.
+- **TanStack Router: a parent route's component MUST render `<Outlet/>` for
+  a nested child route to show at all.** `gameRoute` originally had
+  `component: GamePage` directly (no Outlet); navigating to the nested
+  `/campaigns/new` child changed the URL but nothing new ever mounted —
+  `waitForURL` passed, the page just silently kept showing the parent's old
+  content. Fixed by splitting into a thin layout route
+  (`component: () => <Outlet/>`) plus an index child route holding the real
+  page, mirroring the existing `lobbyRoute`/`lobbyHomeRoute` shell pattern.
+  If you nest a new route under an existing one, check the parent's
+  component renders `<Outlet/>` — this fails silently, not with an error.
+- **Router loader data goes stale after a mutation elsewhere; TanStack does
+  not auto-refetch it for you.** `GamePage` read `gameRoute`'s loader data
+  once via `useState(loader.game)`; after creating a campaign via a
+  different route and navigating back, the parent's cached loader snapshot
+  still showed zero campaigns. Fixed with `router.invalidate()` after the
+  mutating action, plus having `GamePage` always refetch on mount
+  (`useEffect`) instead of trusting the loader snapshot — the same pattern
+  `Lobby.tsx`/`LobbyHome.tsx` already used, for the same reason. Any screen
+  whose loader data a sibling/child route can mutate needs this.
+- **Ambiguous Playwright locators when a card has nested divs sharing
+  text.** `page.locator('div', {hasText: ...}).last()` resolved to the
+  innermost single-purpose div (just the campaign name) once the card grew
+  a status badge and buttons as siblings, not the outer card. Fixed with an
+  explicit `data-testid={`campaign-${id}`}` — this codebase already has
+  this convention (`tab-`, `library-add-`); reach for it immediately rather
+  than trying to out-clever `hasText`/`.last()`/`.first()`.
 
 ## Demo fixtures (`backend/db/seed.sql`)
 
@@ -214,15 +298,20 @@ Not done (see docs/07 for the full live list; highlights):
 |--------|----|
 | GM user "Game Master" (PIN `1234`) | `11111111-1111-1111-1111-111111111111` |
 | Player user "Player One" (PIN `4321`) | `22222222-2222-2222-2222-222222222222` |
+| Game "Demo Campaign" (join code `GAMEDEMO`) | `88888888-8888-8888-8888-888888888888` |
 | Campaign "Demo Campaign" (join code `DEMO42`) | `33333333-3333-3333-3333-333333333333` |
 | Map "Demo Map" (square, 70px, 16x12) | `44444444-4444-4444-4444-444444444444` |
 | Player sheet "Aria" | `55555555-5555-5555-5555-555555555555` |
 | Token "Aria" (player) | `66666666-6666-6666-6666-666666666666` |
 | Token "Lurking Orc" (hidden monster) | `77777777-7777-7777-7777-777777777777` |
 
-Also seeded: `campaign_members` rows for both users, and one
+Also seeded: a `game_members` row for Player One on the Demo Game;
+`campaign_members` rows for both users on the Demo Campaign; one
 `campaign_live_maps` row (Demo Map, position 0) — without it the seeded GM
-lands on an empty tab bar.
+lands on an empty tab bar. **The Demo Campaign's `status` is `'live'`**, not
+the schema default `'draft'` — it's meant to be an already-running,
+immediately-enterable demo session, and the committed e2e suite assumes
+this (it clicks straight through to "Enter" with no Start Session step).
 
 The Orc is hidden on unrevealed cell `10,5`, so players do not receive it until
 the GM reveals that cell. This is the anti-cheat demo fixture. If you run
@@ -253,6 +342,15 @@ evidence.
   the action, and cross-check the database with `pg`. Take screenshots for
   visual changes and actually look at them — this project's owner cares about
   layout/styling quality, not just functional correctness.
+- **`npx playwright test` fails with "port already in use" if anything else
+  holds :4000/:5173.** Playwright's `webServer` config has
+  `reuseExistingServer: false` by design, so it refuses to share a port
+  with your own `npm run dev` session or a leftover backend process from a
+  prior interrupted test run (`lsof -nP -iTCP:4000 -sTCP:LISTEN` to find
+  it). Check what's actually listening before killing it — a long-running
+  process (multi-hour uptime) is likely the owner's own manual dev session
+  and needs their OK before you stop it; a process only seconds/minutes
+  old is almost always your own leftover test run and safe to kill.
 - Run scripts from inside the repo (module resolution) or copy temp scripts
   into the repo root; the scratchpad is outside `node_modules`.
 
@@ -279,12 +377,19 @@ evidence.
 
 ## Suggested next steps (owner's call on priority — check docs/07 first)
 
-1. Character sheet UI wired to the existing `sheet_update` contract/handler.
-2. GM toolkit Phase 2: token/monster CRUD (spawn, bestiary, HP/conditions) —
+1. **Player-facing Games/Campaigns dashboard** (docs/12 §9) — the natural
+   next slice now that the GM-side Games hierarchy is built: "my
+   Games/Campaigns," jump into whichever campaign is `live`, manage own
+   character sheet outside a live campaign. No design started yet.
+2. Character sheet UI wired to the existing `sheet_update` contract/handler.
+3. GM toolkit Phase 2: token/monster CRUD (spawn, bestiary, HP/conditions) —
    the natural next slice per docs/11's own phase order.
-3. Per-audience fog (docs/08, docs/11 Phase 3) — design is already settled,
+4. Per-audience fog (docs/08, docs/11 Phase 3) — design is already settled,
    just not built.
-4. Wire CI to run `npm test` on push (no `.github/workflows` exists yet).
-5. Fix the missing `demo-map.png` seed asset (cosmetic, low priority).
-6. Pan/zoom camera (note: input math currently assumes stage coords == CSS
+5. "Rules/resources" as a Game-level content type (docs/12 §9) — NPC
+   library, freeform notes, item tables; deliberately deferred, no design
+   yet either.
+6. Wire CI to run `npm test` on push (no `.github/workflows` exists yet).
+7. Fix the missing `demo-map.png` seed asset (cosmetic, low priority).
+8. Pan/zoom camera (note: input math currently assumes stage coords == CSS
    pixels; a camera transform means converting through it).
