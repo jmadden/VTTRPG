@@ -4,6 +4,7 @@ import type {
   AuthResponse,
   AuthUser,
   CampaignDetail,
+  CampaignStatus,
   CampaignSummary,
   CreateCampaignRequest,
   EligibleSheetDto,
@@ -131,6 +132,12 @@ export const api = {
       body: JSON.stringify({ joinCode }),
     }),
   getCampaign: (id: string) => req<CampaignDetail>(`/api/campaigns/${id}`),
+  startSession: (campaignId: string) =>
+    req<{ status: CampaignStatus }>(`/api/campaigns/${campaignId}/start`, { method: 'POST' }),
+  endSession: (campaignId: string) =>
+    req<{ status: CampaignStatus }>(`/api/campaigns/${campaignId}/end`, { method: 'POST' }),
+  completeCampaign: (campaignId: string) =>
+    req<{ status: CampaignStatus }>(`/api/campaigns/${campaignId}/complete`, { method: 'POST' }),
   listMaps: (campaignId: string) => req<MapSummary[]>(`/api/campaigns/${campaignId}/maps`),
   // Multipart upload: separate from req() (which forces JSON). No content-type
   // header, so the browser sets the multipart boundary.
