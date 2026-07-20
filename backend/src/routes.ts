@@ -184,6 +184,45 @@ apiRouter.get(
   }),
 );
 
+// GET /api/games/:id/templates -> Map Library list (GM only).
+apiRouter.get(
+  '/games/:id/templates',
+  requireAuth,
+  requireGameGm,
+  ah(async (req, res) => {
+    res.json(await repo.listMapTemplates(req.params.id!));
+  }),
+);
+
+// POST /api/games/:id/templates -> upload an image, create a template (GM only).
+apiRouter.post(
+  '/games/:id/templates',
+  requireAuth,
+  requireGameGm,
+  upload.single('image'),
+  ah(async (req, res) => {
+    const id = req.params.id!;
+    if (!req.file) {
+      res.status(400).json({ error: 'no_image' });
+      return;
+    }
+    const name =
+      typeof req.body.name === 'string' && req.body.name.trim() ? req.body.name.trim() : 'Template';
+    const gridSize = Math.round(Number(req.body.gridSize)) || 70;
+    const cols = Math.max(1, Math.round(Number(req.body.cols)) || 1);
+    const rows = Math.max(1, Math.round(Number(req.body.rows)) || 1);
+    const template = await repo.createMapTemplate(id, {
+      name,
+      assetPath: `/assets/${req.file.filename}`,
+      gridType: 'square',
+      gridSize,
+      cols,
+      rows,
+    });
+    res.status(201).json(template);
+  }),
+);
+
 // GET /api/campaigns -> lobby list.
 apiRouter.get(
   '/campaigns',
@@ -199,7 +238,7 @@ apiRouter.post(
   '/campaigns',
   requireAuth,
   ah(async (req, res) => {
-    const { gameId, name, joinCode } = req.body ?? {};
+    const { gameId, name, joinCode, templateIds } = req.body ?? {};
     if (typeof gameId !== 'string' || gameId.trim().length < 1) {
       res.status(400).json({ error: 'invalid_game' });
       return;
@@ -213,7 +252,8 @@ apiRouter.post(
       return;
     }
     const code = typeof joinCode === 'string' && joinCode.trim() ? joinCode.trim() : null;
-    res.status(201).json(await repo.createCampaign(req.userId!, gameId, name.trim(), code));
+    const templates = Array.isArray(templateIds) ? templateIds.filter((t) => typeof t === 'string') : [];
+    res.status(201).json(await repo.createCampaign(req.userId!, gameId, name.trim(), code, templates));
   }),
 );
 

@@ -226,10 +226,45 @@ async function listCampaignsForGame(gameId: string, userId: string): Promise<Cam
   }));
 }
 
-/** Map Library for a Game (stub — the map-templates task implements the real
- *  upload/list; getGameDetail below will call the real version once it lands). */
-export async function listMapTemplates(_gameId: string): Promise<MapTemplateSummary[]> {
-  return [];
+/** Upload a template into a Game's Map Library. */
+export async function createMapTemplate(
+  gameId: string,
+  m: { name: string; assetPath: string; gridType: 'square' | 'hex'; gridSize: number; cols: number; rows: number },
+): Promise<MapTemplateSummary> {
+  const res = await query<{ id: string }>(
+    `INSERT INTO map_templates (game_id, name, asset_path, grid_type, grid_size, cols, rows)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [gameId, m.name, m.assetPath, m.gridType, m.gridSize, m.cols, m.rows],
+  );
+  return { id: res.rows[0]!.id, gameId, ...m };
+}
+
+/** Map Library for a Game. */
+export async function listMapTemplates(gameId: string): Promise<MapTemplateSummary[]> {
+  const res = await query<{
+    id: string;
+    game_id: string;
+    name: string;
+    asset_path: string;
+    grid_type: 'square' | 'hex';
+    grid_size: number;
+    cols: number;
+    rows: number;
+  }>(
+    `SELECT id, game_id, name, asset_path, grid_type, grid_size, cols, rows
+       FROM map_templates WHERE game_id = $1 ORDER BY created_at`,
+    [gameId],
+  );
+  return res.rows.map((r) => ({
+    id: r.id,
+    gameId: r.game_id,
+    name: r.name,
+    assetPath: r.asset_path,
+    gridType: r.grid_type,
+    gridSize: r.grid_size,
+    cols: r.cols,
+    rows: r.rows,
+  }));
 }
 
 /** Assembles the full Game detail: campaigns, roster, and (until the Map
@@ -279,13 +314,16 @@ export async function listCampaigns(userId: string): Promise<CampaignSummary[]> 
 }
 
 /** Insert the campaign (under a required Game) and the creator's GM member
- *  row atomically (CTE). docs/12 §5: templateIds/memberUserIds are added
- *  additively by later tasks (copy-on-assign maps, roster subset). */
+ *  row atomically (CTE). `templateIds` are copy-on-assigned into fresh
+ *  game_maps rows (docs/12: never a shared reference — fog/tokens are
+ *  inherently per-playthrough); a foreign template (from a different Game)
+ *  is silently dropped by the game_id match in the WHERE clause. */
 export async function createCampaign(
   userId: string,
   gameId: string,
   name: string,
   joinCode: string | null,
+  templateIds: string[] = [],
 ): Promise<CampaignDetail> {
   const res = await query<{ id: string }>(
     `WITH c AS (
@@ -297,8 +335,20 @@ export async function createCampaign(
      SELECT id FROM c`,
     [name, userId, joinCode, gameId],
   );
+  const campaignId = res.rows[0]!.id;
+
+  if (templateIds.length > 0) {
+    await query(
+      `INSERT INTO game_maps (campaign_id, name, asset_path, grid_type, grid_size, cols, rows, template_id)
+       SELECT $1, name, asset_path, grid_type, grid_size, cols, rows, id
+         FROM map_templates
+        WHERE id = ANY($2::uuid[]) AND game_id = $3`,
+      [campaignId, templateIds, gameId],
+    );
+  }
+
   // Creator is the GM, so they're the viewer for the detail returned here.
-  return (await getCampaignDetail(res.rows[0]!.id, userId))!;
+  return (await getCampaignDetail(campaignId, userId))!;
 }
 
 export async function joinCampaign(
