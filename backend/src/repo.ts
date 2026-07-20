@@ -6,6 +6,7 @@ import type {
   CampaignDetail,
   CampaignSummary,
   CellKey,
+  EligibleSheetDto,
   GameDetail,
   GameMemberDto,
   GameSummary,
@@ -177,6 +178,25 @@ export async function isGameGm(gameId: string, userId: string): Promise<boolean>
   return res.rows.length > 0;
 }
 
+/** Join a Game's standing roster by its join_code (docs/12 §5). */
+export async function joinGame(
+  userId: string,
+  gameId: string,
+  joinCode: string | undefined,
+): Promise<{ ok: true } | { ok: false; reason: 'not_found' | 'bad_code' }> {
+  const g = await query<{ id: string; join_code: string }>('SELECT id, join_code FROM games WHERE id = $1', [
+    gameId,
+  ]);
+  const row = g.rows[0];
+  if (!row) return { ok: false, reason: 'not_found' };
+  if (row.join_code !== joinCode) return { ok: false, reason: 'bad_code' };
+  await query('INSERT INTO game_members (game_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [
+    gameId,
+    userId,
+  ]);
+  return { ok: true };
+}
+
 /** Every Game-level roster member with their persistent character sheet, if any. */
 export async function listGameMembers(gameId: string): Promise<GameMemberDto[]> {
   const res = await query<{ user_id: string; display_name: string; character_sheet_id: string | null }>(
@@ -267,6 +287,49 @@ export async function listMapTemplates(gameId: string): Promise<MapTemplateSumma
   }));
 }
 
+/** Sheets a Roster member could attach: theirs, from a campaign under this
+ *  Game (docs/12 §6: "attach their existing sheet from the Roster tab"). */
+export async function listEligibleSheets(gameId: string, userId: string): Promise<EligibleSheetDto[]> {
+  const res = await query<{ id: string; name: string }>(
+    `SELECT cs.id, cs.name
+       FROM character_sheets cs JOIN campaigns c ON c.id = cs.campaign_id
+      WHERE cs.owner_user_id = $2 AND c.game_id = $1
+      ORDER BY cs.created_at`,
+    [gameId, userId],
+  );
+  return res.rows;
+}
+
+/** Attach (or clear, characterSheetId=null) a roster member's persistent
+ *  character sheet reference. The sheet must be owned by that user and come
+ *  from a campaign under this same Game. */
+export async function setGameMemberSheet(
+  gameId: string,
+  userId: string,
+  characterSheetId: string | null,
+): Promise<{ ok: true } | { ok: false; reason: 'not_member' | 'invalid_sheet' }> {
+  const member = await query('SELECT 1 FROM game_members WHERE game_id = $1 AND user_id = $2', [
+    gameId,
+    userId,
+  ]);
+  if (member.rows.length === 0) return { ok: false, reason: 'not_member' };
+  if (characterSheetId !== null) {
+    const sheet = await query(
+      `SELECT 1 FROM character_sheets cs
+         JOIN campaigns c ON c.id = cs.campaign_id
+        WHERE cs.id = $1 AND cs.owner_user_id = $2 AND c.game_id = $3`,
+      [characterSheetId, userId, gameId],
+    );
+    if (sheet.rows.length === 0) return { ok: false, reason: 'invalid_sheet' };
+  }
+  await query('UPDATE game_members SET character_sheet_id = $3 WHERE game_id = $1 AND user_id = $2', [
+    gameId,
+    userId,
+    characterSheetId,
+  ]);
+  return { ok: true };
+}
+
 /** Assembles the full Game detail: campaigns, roster, and (until the Map
  *  Library is wired in) an empty template list. */
 export async function getGameDetail(gameId: string, userId: string): Promise<GameDetail | null> {
@@ -324,6 +387,7 @@ export async function createCampaign(
   name: string,
   joinCode: string | null,
   templateIds: string[] = [],
+  memberUserIds: string[] = [],
 ): Promise<CampaignDetail> {
   const res = await query<{ id: string }>(
     `WITH c AS (
@@ -344,6 +408,18 @@ export async function createCampaign(
          FROM map_templates
         WHERE id = ANY($2::uuid[]) AND game_id = $3`,
       [campaignId, templateIds, gameId],
+    );
+  }
+
+  if (memberUserIds.length > 0) {
+    // game_id = $2 scopes to this Game's roster -- a non-roster id is
+    // silently dropped, same precedent as the template copy above.
+    await query(
+      `INSERT INTO campaign_members (campaign_id, user_id)
+       SELECT $1, gm.user_id FROM game_members gm
+        WHERE gm.game_id = $2 AND gm.user_id = ANY($3::uuid[])
+       ON CONFLICT DO NOTHING`,
+      [campaignId, gameId, memberUserIds],
     );
   }
 

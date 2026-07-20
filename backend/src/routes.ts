@@ -184,6 +184,61 @@ apiRouter.get(
   }),
 );
 
+// POST /api/games/:id/join -> join the roster by join_code. Any authenticated
+// user (this is how a NEW player gets onto the roster, so it cannot require
+// requireGameGm).
+apiRouter.post(
+  '/games/:id/join',
+  requireAuth,
+  ah(async (req, res) => {
+    const id = req.params.id!;
+    const joinCode = typeof req.body?.joinCode === 'string' ? req.body.joinCode : undefined;
+    const r = await repo.joinGame(req.userId!, id, joinCode);
+    if (!r.ok) {
+      res.status(r.reason === 'not_found' ? 404 : 403).json({ error: r.reason });
+      return;
+    }
+    res.json({ ok: true });
+  }),
+);
+
+// GET /api/games/:id/members -> roster list (GM only; refresh after join/attach).
+apiRouter.get(
+  '/games/:id/members',
+  requireAuth,
+  requireGameGm,
+  ah(async (req, res) => {
+    res.json(await repo.listGameMembers(req.params.id!));
+  }),
+);
+
+// GET /api/games/:id/members/:userId/sheets -> eligible sheets to attach (GM only).
+apiRouter.get(
+  '/games/:id/members/:userId/sheets',
+  requireAuth,
+  requireGameGm,
+  ah(async (req, res) => {
+    res.json(await repo.listEligibleSheets(req.params.id!, req.params.userId!));
+  }),
+);
+
+// PATCH /api/games/:id/members/:userId -> attach/clear a character sheet (GM only).
+apiRouter.patch(
+  '/games/:id/members/:userId',
+  requireAuth,
+  requireGameGm,
+  ah(async (req, res) => {
+    const raw = req.body?.characterSheetId;
+    const characterSheetId = raw === null || raw === undefined ? null : String(raw);
+    const r = await repo.setGameMemberSheet(req.params.id!, req.params.userId!, characterSheetId);
+    if (!r.ok) {
+      res.status(r.reason === 'not_member' ? 404 : 400).json({ error: r.reason });
+      return;
+    }
+    res.json({ ok: true });
+  }),
+);
+
 // GET /api/games/:id/templates -> Map Library list (GM only).
 apiRouter.get(
   '/games/:id/templates',
@@ -238,7 +293,7 @@ apiRouter.post(
   '/campaigns',
   requireAuth,
   ah(async (req, res) => {
-    const { gameId, name, joinCode, templateIds } = req.body ?? {};
+    const { gameId, name, joinCode, templateIds, memberUserIds } = req.body ?? {};
     if (typeof gameId !== 'string' || gameId.trim().length < 1) {
       res.status(400).json({ error: 'invalid_game' });
       return;
@@ -253,7 +308,10 @@ apiRouter.post(
     }
     const code = typeof joinCode === 'string' && joinCode.trim() ? joinCode.trim() : null;
     const templates = Array.isArray(templateIds) ? templateIds.filter((t) => typeof t === 'string') : [];
-    res.status(201).json(await repo.createCampaign(req.userId!, gameId, name.trim(), code, templates));
+    const members = Array.isArray(memberUserIds) ? memberUserIds.filter((m) => typeof m === 'string') : [];
+    res
+      .status(201)
+      .json(await repo.createCampaign(req.userId!, gameId, name.trim(), code, templates, members));
   }),
 );
 
