@@ -1,6 +1,6 @@
 // Shared upload helper: reused by MapsManager (library CRUD) and LibraryDrawer
 // (upload straight into the live set), so the dims-from-image logic lives once.
-import type { MapSummary } from '@vtt/shared';
+import type { MapSummary, MapTemplateSummary } from '@vtt/shared';
 import { api } from '../api';
 
 /** Read an image's pixel dimensions client-side, so the server needs no image lib. */
@@ -31,4 +31,17 @@ export async function uploadMapWithDims(
   const cols = Math.max(1, Math.ceil(w / meta.gridSize));
   const rows = Math.max(1, Math.ceil(h / meta.gridSize));
   return api.uploadMap(campaignId, file, { name: meta.name, gridSize: meta.gridSize, cols, rows });
+}
+
+/** Upload an image as a new Map Library template; cols/rows are computed
+ *  from the image's pixel size and the requested grid cell size. */
+export async function uploadMapTemplateWithDims(
+  gameId: string,
+  file: File,
+  meta: { name: string; gridSize: number },
+): Promise<MapTemplateSummary> {
+  const { w, h } = await readDims(file);
+  const cols = Math.max(1, Math.ceil(w / meta.gridSize));
+  const rows = Math.max(1, Math.ceil(h / meta.gridSize));
+  return api.uploadMapTemplate(gameId, file, { name: meta.name, gridSize: meta.gridSize, cols, rows });
 }

@@ -9,6 +9,7 @@ import type {
   GameDetail,
   GameSummary,
   MapSummary,
+  MapTemplateSummary,
 } from '@vtt/shared';
 
 const BASE =
@@ -81,6 +82,36 @@ export const api = {
   createGame: (name: string, description?: string) =>
     req<GameSummary>('/api/games', { method: 'POST', body: JSON.stringify({ name, description }) }),
   getGame: (gameId: string) => req<GameDetail>(`/api/games/${gameId}`),
+  listMapTemplates: (gameId: string) => req<MapTemplateSummary[]>(`/api/games/${gameId}/templates`),
+  async uploadMapTemplate(
+    gameId: string,
+    file: File,
+    meta: { name: string; gridSize: number; cols: number; rows: number },
+  ): Promise<MapTemplateSummary> {
+    const fd = new FormData();
+    fd.append('image', file);
+    fd.append('name', meta.name);
+    fd.append('gridSize', String(meta.gridSize));
+    fd.append('cols', String(meta.cols));
+    fd.append('rows', String(meta.rows));
+    const token = getToken();
+    const res = await fetch(BASE + `/api/games/${gameId}/templates`, {
+      method: 'POST',
+      headers: token ? { authorization: `Bearer ${token}` } : {},
+      body: fd,
+    });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try {
+        const b = (await res.json()) as { error?: string };
+        if (b.error) msg = b.error;
+      } catch {
+        /* non-JSON */
+      }
+      throw new ApiError(res.status, msg);
+    }
+    return (await res.json()) as MapTemplateSummary;
+  },
   listCampaigns: () => req<CampaignSummary[]>('/api/campaigns'),
   createCampaign: (body: CreateCampaignRequest) =>
     req<CampaignDetail>('/api/campaigns', { method: 'POST', body: JSON.stringify(body) }),
