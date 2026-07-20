@@ -6,7 +6,9 @@ import type {
   CampaignDetail,
   CampaignSummary,
   CreateCampaignRequest,
+  EligibleSheetDto,
   GameDetail,
+  GameMemberDto,
   GameSummary,
   MapSummary,
   MapTemplateSummary,
@@ -82,6 +84,14 @@ export const api = {
   createGame: (name: string, description?: string) =>
     req<GameSummary>('/api/games', { method: 'POST', body: JSON.stringify({ name, description }) }),
   getGame: (gameId: string) => req<GameDetail>(`/api/games/${gameId}`),
+  listGameMembers: (gameId: string) => req<GameMemberDto[]>(`/api/games/${gameId}/members`),
+  listEligibleSheets: (gameId: string, userId: string) =>
+    req<EligibleSheetDto[]>(`/api/games/${gameId}/members/${userId}/sheets`),
+  attachSheet: (gameId: string, userId: string, characterSheetId: string | null) =>
+    req<{ ok: true }>(`/api/games/${gameId}/members/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ characterSheetId }),
+    }),
   listMapTemplates: (gameId: string) => req<MapTemplateSummary[]>(`/api/games/${gameId}/templates`),
   async uploadMapTemplate(
     gameId: string,
